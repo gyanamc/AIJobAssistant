@@ -1,0 +1,27 @@
+# Environment variables — never commit this!
+.env
+
+# Google Service Account credentials — contains private key!
+data/credentials.json
+
+# Python virtual environment
+.venv/
+
+# Playwright browser binaries
+playwright-browsers/
+
+# macOS
+.DS_Store
+
+# Compiled Python files
+__pycache__/
+*.py[cod]
+
+# Saved LinkedIn cookies (contains session tokens)
+data/linkedin_cookies.json
+
+# SQLite database (runtime data)
+db/*.db
+
+# Logs
+*.log

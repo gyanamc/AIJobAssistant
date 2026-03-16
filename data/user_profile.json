@@ -1,0 +1,141 @@
+{
+  "personal_info": {
+    "first_name": "Kumar",
+    "last_name": "Gyanam",
+    "email": "gyanamc@gmail.com",
+    "phone": "9953682525",
+    "location": "Gurgaon",
+    "linkedin_url": "https://linkedin.com/in/kumargyanam",
+    "github_url": "https://github.com/kumargyanam",
+    "portfolio_url": "https://gyanam.store"
+  },
+  "preferences": {
+    "roles": [
+      "artificial intelligence",
+      "Agentic AI",
+      "LangChain",
+      "LangGraph",
+      "LLM",
+      "RAG",
+      "Retrieval Augmented Generation",
+      "n8n",
+      "workflow automation",
+      "automation engineer",
+      "AI Strategy",
+      "AI Consultant",
+      "AI architecture",
+      "General Artificial intelligence",
+      "Machine Learning",
+      "Data Science",
+      "Deep Learning",
+      "NLP"
+    ],
+    "locations": [
+      "Remote",
+      "Gurgaon",
+      "Gurugram",
+      "New Delhi",
+      "NCR"
+    ],
+    "job_types": [
+      "Full-time",
+      "Contract"
+    ],
+    "salary_expectation": "INR 5500000"
+  },
+  "experience": [
+    {
+      "company": "SBI Card",
+      "title": "Deputy Vice President - Conversational AI",
+      "start_date": "2023-04",
+      "end_date": "Present",
+      "description": "Strategic AI Infrastructure & Platform Leadership. Architected and operationalised a secure, air-gapped Retrieval-Augmented Generation (RAG) ecosystem. Leveraged LangChain and LangGraph to build complex, stateful agentic workflows. Deployed open-source LLMs (Mistral, Llama-3) using ELK as a high-scale Vector Database."
+    },
+    {
+      "company": "Brane Group",
+      "title": "Analytics Delivery Head",
+      "start_date": "2022-01",
+      "end_date": "2023-04",
+      "description": "Architected ML-powered solutions for Healthcare (ambulance dispatch optimisation), Financial Risk (fraud detection), and Ad-tech (campaign ROI optimisation). Led a cross-functional team of data scientists and engineers to deliver production-ready AI models for global clients."
+    },
+    {
+      "company": "Pixstory",
+      "title": "Head of Technology Architecture",
+      "start_date": "2019-01",
+      "end_date": "2022-01",
+      "description": "Built a custom ML-based recommendation engine from scratch, resulting in a 180% improvement in user engagement. Managed the full-stack development of semantic analysis and automated tagging workflows for 1M+ posts."
+    },
+    {
+      "company": "The Indian Express",
+      "title": "Chief Manager - Business Intelligence",
+      "start_date": "2009-07",
+      "end_date": "2019-01",
+      "description": "Transformed subscription architecture and built predictive analytics for collection management. Reduced user detractors by 50% through text mining and continuous consumer research."
+    },
+    {
+      "company": "Axis Bank",
+      "title": "Sales Manager",
+      "start_date": "2008-08",
+      "end_date": "2009-07",
+      "description": "Managed distributed sales operation achieving Rs 200 Cr+ disbursement targets through process optimisation and team leadership."
+    },
+    {
+      "company": "ICICI Bank",
+      "title": "Sales Manager",
+      "start_date": "2006-06",
+      "end_date": "2008-08",
+      "description": "Built franchise network across multiple districts managing Rs 60 Cr+ lending portfolio and regional expansion strategy."
+    }
+  ],
+  "education": [
+    {
+      "institution": "Institute of Rural Management (IRM)",
+      "degree": "MBA in Marketing & Strategic Management",
+      "field_of_study": "Marketing & Strategic Management",
+      "start_date": "2004",
+      "end_date": "2006"
+    },
+    {
+      "institution": "Ranchi University",
+      "degree": "B.Sc. in Mathematics & Statistics",
+      "field_of_study": "Mathematics & Statistics",
+      "start_date": "2001",
+      "end_date": "2004"
+    },
+    {
+      "institution": "Indian Institute of Management (IIM), Calcutta",
+      "degree": "AI-Powered Marketing",
+      "field_of_study": "AI & Marketing",
+      "start_date": "2022",
+      "end_date": "2022"
+    }
+  ],
+  "skills": [
+    "Python",
+    "LangGraph",
+    "LangChain",
+    "n8n",
+    "Agentic RAG",
+    "Ray Serve",
+    "vLLM",
+    "ELK Stack",
+    "Llama-3",
+    "Mistral",
+    "Ragas",
+    "MLflow",
+    "Airflow",
+    "Railway.app",
+    "AWS",
+    "Docker",
+    "Kubernetes",
+    "FAST APIs",
+    "SQL/NoSQL",
+    "Machine Learning"
+  ],
+  "custom_answers": {
+    "Are you legally authorized to work in the United States?": "Yes",
+    "Will you now or in the future require sponsorship for employment visa status?": "No",
+    "What is your expected salary?": "5500000",
+    "Do you have a security clearance?": "No"
+  }
+}
