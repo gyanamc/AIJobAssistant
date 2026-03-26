@@ -11,35 +11,20 @@
   },
   "preferences": {
     "roles": [
-      "artificial intelligence",
+      "AI Leadership",
       "Agentic AI",
-      "LangChain",
-      "LangGraph",
-      "LLM",
+      "AI Architecture",
       "RAG",
-      "Retrieval Augmented Generation",
       "n8n",
-      "workflow automation",
-      "automation engineer",
       "AI Strategy",
-      "AI Consultant",
-      "AI architecture",
-      "General Artificial intelligence",
-      "Machine Learning",
-      "Data Science",
-      "Deep Learning",
-      "NLP"
+      "AI Consultant"
     ],
     "locations": [
-      "Remote",
       "Gurgaon",
-      "Gurugram",
-      "New Delhi",
-      "NCR"
+      "Gurugram"
     ],
     "job_types": [
-      "Full-time",
-      "Contract"
+      "Full-time"
     ],
     "salary_expectation": "INR 5500000"
   },

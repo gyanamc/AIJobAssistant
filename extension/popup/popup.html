@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>AI Job Assistant</title>
+    <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+    <div class="container">
+        <h2>AI Job Assistant</h2>
+        
+        <div class="tabs">
+            <button class="tab-btn active" data-target="dashboard">Dashboard</button>
+            <button class="tab-btn" data-target="settings">Settings</button>
+            <button class="tab-btn" data-target="profile">Profile</button>
+        </div>
+
+        <!-- Dashboard Tab -->
+        <div id="dashboard" class="tab-content active">
+            <div class="status-panel">
+                <p>Status: <span id="botStatus">Stopped</span></p>
+                <button id="toggleBotBtn" class="primary-btn">Start Bot</button>
+            </div>
+            <div class="logs">
+                <h3>Recent Activity:</h3>
+                <ul id="logList"></ul>
+            </div>
+        </div>
+
+        <!-- Settings Tab -->
+        <div id="settings" class="tab-content">
+            <div class="input-group">
+                <label for="aiModel">AI Model</label>
+                <select id="aiModel" class="w-full">
+                    <option value="gemini" selected>Built-in Gemini Nano (Free, No Key)</option>
+                    <option value="openai">OpenAI (GPT-4o mini)</option>
+                    <option value="gemini_api">Google Gemini API (Gemini 1.5 Flash)</option>
+                    <option value="anthropic">Anthropic Claude (Claude 3.5 Sonnet)</option>
+                </select>
+            </div>
+            <div class="input-group" id="apiKeyContainer" style="display: none;">
+                <label id="apiKeyLabel" for="apiKey">API Key</label>
+                <input type="password" id="apiKey" placeholder="Paste your API key here..." class="w-full">
+                <small>Key is stored locally in your browser.</small>
+            </div>
+            <div class="form-group">
+                <label for="sheetUrl">Google Sheet URL:</label>
+                <input type="text" id="sheetUrl" placeholder="https://docs.google.com/spreadsheets/d/...">
+                <small>Paste the full link to the spreadsheet to save matches.</small>
+            </div>
+            <button id="saveSettingsBtn" class="primary-btn">Save Settings</button>
+        </div>
+
+        <!-- Profile Tab -->
+        <div id="profile" class="tab-content">
+            <div class="form-group">
+                <label for="targetRoles">Target Roles (comma-separated):</label>
+                <input type="text" id="targetRoles" placeholder="Software Engineer, Data Scientist">
+            </div>
+            <div class="form-group">
+                <label for="targetLocations">Locations (comma-separated):</label>
+                <input type="text" id="targetLocations" placeholder="Remote, London, New York">
+            </div>
+            <div class="form-group">
+                <label for="resumeSummary">Resume Summary:</label>
+                <textarea id="resumeSummary" rows="4" placeholder="Paste your resume summary or skills here..."></textarea>
+            </div>
+            <div class="form-group" style="display: flex; align-items: flex-start; gap: 8px; margin-top: 15px; margin-bottom: 15px;">
+                <input type="checkbox" id="shareAnonymized" style="margin-top: 3px; cursor: pointer;">
+                <label for="shareAnonymized" style="font-size: 0.9em; line-height: 1.4; font-weight: normal; cursor: pointer; color: #555;">Allow my anonymized matches to be shared with verified recruiters.</label>
+            </div>
+            <button id="saveProfileBtn" class="primary-btn">Save Profile</button>
+        </div>
+    </div>
+    <script src="popup.js"></script>
+</body>
+</html>

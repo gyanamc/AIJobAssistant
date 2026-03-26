@@ -13,11 +13,19 @@ This agent automates searching for jobs on LinkedIn, downloading their descripti
 
 ## 2. First Run (Login)
 
-On the very first run, Playwright will open a visible Chromium browser window and take you to the LinkedIn login screen.
+On the very first run, Playwright will open a visible browser window and iterate through the platforms (LinkedIn, then Naukri).
+
+### LinkedIn
 1. Log in manually using your credentials.
 2. Complete any 2FA/Captchas.
 3. Once you arrive at the LinkedIn feed page, go back to your terminal and press **Enter**.
-4. Your session cookies will be saved in `data/linkedin_cookies.json`, so you won't have to log in manually next time.
+4. Your session cookies will be saved in `data/linkedin_cookies.json`, so you won't need to log in manually next time.
+
+### Naukri
+1. After LinkedIn, the browser will navigate to Naukri's homepage.
+2. Log in manually to Naukri.
+3. Once logged in and on your Naukri homepage, go back to the terminal and press **Enter**.
+4. Cookies will be saved in `data/naukri_cookies.json`.
 
 ## 3. Running the Agent
 
