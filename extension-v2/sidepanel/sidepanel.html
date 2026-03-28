@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>AI Job Assistant</title>
+  <link rel="stylesheet" href="sidepanel.css">
+</head>
+<body>
+
+  <!-- HEADER -->
+  <header class="sp-header">
+    <div class="sp-header-left">
+      <img src="../icons/icon48.png" class="sp-logo" alt="logo">
+      <span class="sp-brand">AI Job Assistant</span>
+    </div>
+    <div class="sp-header-right">
+      <button class="icon-btn" id="themeBtn" title="Toggle theme">&#9788;</button>
+      <button class="icon-btn" id="refreshBtn" title="Refresh">&#x21bb;</button>
+      <div class="bot-toggle-wrap">
+        <span class="bot-label" id="botLabel">Stopped</span>
+        <label class="toggle-switch">
+          <input type="checkbox" id="botToggle">
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
+    </div>
+  </header>
+
+  <!-- BOT STATUS BANNER: shown when bot is stopped -->
+  <div id="botStatusBanner" class="bot-status-banner hidden">
+    <span class="banner-icon">&#9888;</span>
+    <span class="banner-text">Bot is paused — jobs are not being evaluated</span>
+    <button class="banner-start-btn" id="bannerStartBtn">Start</button>
+  </div>
+
+  <!-- MAIN SCROLLABLE CONTENT -->
+  <main class="sp-main" id="spMain">
+
+    <!-- IDLE STATE: shown when no job is selected -->
+    <div id="idleView" class="idle-view">
+      <div class="idle-icon">&#128269;</div>
+      <p class="idle-title">No job selected</p>
+      <p class="idle-sub">Click on any job card on LinkedIn or Naukri and the analysis will appear here automatically.</p>
+      <div class="platform-badges">
+        <span class="badge badge-li">LinkedIn</span>
+        <span class="badge badge-nk">Naukri</span>
+      </div>
+    </div>
+
+    <!-- ANALYSIS VIEW: shown when a job is being evaluated -->
+    <div id="analysisView" class="hidden">
+
+      <!-- Match Score -->
+      <div class="card score-card" id="scoreCard">
+        <div class="score-header">
+          <span class="score-title"><span class="score-star">&#10024;</span> Resume Match Score</span>
+          <span class="score-pct" id="scorePct">--</span>
+        </div>
+        <div class="score-bars">
+          <div class="score-bar-row">
+            <span class="bar-label">Skills</span>
+            <div class="bar-track"><div class="bar-fill" id="barSkills" style="width:0%"></div></div>
+            <span class="bar-val" id="valSkills">--</span>
+          </div>
+          <div class="score-bar-row">
+            <span class="bar-label">Requirements</span>
+            <div class="bar-track"><div class="bar-fill" id="barReqs" style="width:0%"></div></div>
+            <span class="bar-val" id="valReqs">--</span>
+          </div>
+          <div class="score-bar-row">
+            <span class="bar-label">Responsibilities</span>
+            <div class="bar-track"><div class="bar-fill" id="barResp" style="width:0%"></div></div>
+            <span class="bar-val" id="valResp">--</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Action Buttons -->
+      <div class="action-btns">
+        <button class="action-btn" id="saveJobBtn">&#128190; Save Job</button>
+        <button class="action-btn" id="coverLetterBtn">&#128221; Generate Cover Letter</button>
+        <button class="action-btn action-btn-locked" id="rewriteResumeBtn" disabled>&#128274; Rewrite Resume <span class="coming-soon">Coming Soon</span></button>
+      </div>
+
+      <!-- Job Summary Card -->
+      <div class="card job-summary-card" id="jobSummaryCard">
+        <div class="job-title-row">
+          <span class="job-title-text" id="jobTitleText">--</span>
+        </div>
+        <div class="job-company-text" id="jobCompanyText">--</div>
+        <div class="job-meta-row">
+          <span class="meta-chip" id="metaSalary">Salary not specified</span>
+          <span class="meta-chip" id="metaLocation">--</span>
+          <span class="meta-chip" id="metaType">Full-time</span>
+        </div>
+        <div class="job-links-row">
+          <a class="job-apply-link" id="jobApplyLink" href="#" target="_blank">&#128279; Apply Now</a>
+          <span class="job-email" id="jobContactEmail"></span>
+        </div>
+      </div>
+
+      <!-- Skills Matched -->
+      <div class="card section-card" id="skillsSection">
+        <div class="section-header" data-target="skillsBody">
+          <span class="section-icon">&#127919;</span>
+          <span class="section-title">Skills Matched</span>
+          <span class="section-count" id="skillsCount"></span>
+          <span class="section-chevron">&#8963;</span>
+        </div>
+        <div class="section-body" id="skillsBody">
+          <div class="skills-chips" id="skillsChips"></div>
+        </div>
+      </div>
+
+      <!-- Job Requirements -->
+      <div class="card section-card" id="reqsSection">
+        <div class="section-header" data-target="reqsBody">
+          <span class="section-icon">&#9989;</span>
+          <span class="section-title">Job Requirements</span>
+          <span class="section-chevron">&#8963;</span>
+        </div>
+        <div class="section-body" id="reqsBody">
+          <ul class="req-list" id="reqsList"></ul>
+        </div>
+      </div>
+
+      <!-- Job Responsibilities -->
+      <div class="card section-card" id="respSection">
+        <div class="section-header" data-target="respBody">
+          <span class="section-icon">&#128203;</span>
+          <span class="section-title">Job Responsibilities</span>
+          <span class="section-chevron">&#8963;</span>
+        </div>
+        <div class="section-body" id="respBody">
+          <ul class="req-list" id="respList"></ul>
+        </div>
+      </div>
+
+      <!-- Cover Letter Output -->
+      <div class="card section-card hidden" id="coverLetterSection">
+        <div class="section-header" data-target="coverLetterBody">
+          <span class="section-icon">&#128393;</span>
+          <span class="section-title">Cover Letter</span>
+          <span class="section-chevron">&#8963;</span>
+        </div>
+        <div class="section-body" id="coverLetterBody">
+          <div class="cover-letter-text" id="coverLetterText"></div>
+          <button class="copy-btn" id="copyCoverLetter">Copy</button>
+        </div>
+      </div>
+
+      <!-- AI Reasoning -->
+      <div class="card section-card" id="reasoningSection">
+        <div class="section-header" data-target="reasoningBody">
+          <span class="section-icon">&#129504;</span>
+          <span class="section-title">AI Reasoning</span>
+          <span class="section-chevron">&#8963;</span>
+        </div>
+        <div class="section-body" id="reasoningBody">
+          <p class="reasoning-text" id="reasoningText">--</p>
+        </div>
+      </div>
+
+    </div><!-- /analysisView -->
+
+    <!-- ACTIVITY LOG VIEW -->
+    <div id="logView" class="hidden">
+      <div class="log-header-row">
+        <span class="log-title">Activity Log</span>
+        <button class="clear-btn" id="clearLogsBtn">Clear</button>
+      </div>
+      <ul class="log-list" id="logList"></ul>
+    </div>
+
+    <!-- SETTINGS VIEW -->
+    <div id="settingsView" class="hidden">
+      <div class="settings-section">
+        <label class="field-label">AI Model</label>
+        <select id="aiModel" class="field-select">
+          <option value="free">Free (Groq + Ollama fallback)</option>
+          <option value="openai">OpenAI GPT-4o mini</option>
+          <option value="gemini_api">Google Gemini 1.5 Flash</option>
+          <option value="anthropic">Anthropic Claude 3.5 Sonnet</option>
+        </select>
+      </div>
+      <div class="settings-section hidden" id="apiKeySection">
+        <label class="field-label" id="apiKeyLabel">API Key</label>
+        <input type="password" id="apiKey" class="field-input" placeholder="Paste your API key...">
+        <small class="field-hint">Stored locally in your browser only.</small>
+      </div>
+
+      <!-- Free tier fields — shown when "free" model is selected -->
+      <div id="freeModelSection">
+        <div class="settings-section">
+          <label class="field-label">Groq API Key <span class="field-optional">(optional — faster)</span></label>
+          <input type="password" id="groqApiKey" class="field-input" placeholder="gsk_...">
+          <small class="field-hint">Free key from <a class="settings-link" href="https://console.groq.com" target="_blank">console.groq.com</a> — no credit card needed. Used first, falls back to Ollama if unavailable.</small>
+        </div>
+        <div class="settings-section">
+          <label class="field-label">Ollama Backend URL <span class="field-optional">(fallback)</span></label>
+          <input type="text" id="ollamaBackendUrl" class="field-input" placeholder="https://your-app.railway.app">
+          <small class="field-hint">Your Railway.app deployment URL. Used when Groq is unavailable.</small>
+        </div>
+        <div class="settings-section">
+          <label class="field-label">Ollama Model</label>
+          <input type="text" id="ollamaModel" class="field-input" placeholder="llama3.2:1b" value="llama3.2:1b">
+          <small class="field-hint">Model installed on your Ollama server. Default: llama3.2:1b</small>
+        </div>
+      </div>
+      <button class="save-btn" id="saveSettingsBtn">Save Settings</button>
+      <div class="save-confirm hidden" id="settingsSaved">&#10003; Settings saved</div>
+      <button class="clear-history-btn" id="clearHistoryBtn">&#128465; Clear processed job history</button>
+      <div class="save-confirm hidden" id="historyClearedMsg">&#10003; History cleared — all jobs will be re-evaluated</div>
+    </div>
+
+    <!-- PROFILE VIEW -->
+    <div id="profileView" class="hidden">
+      <div class="settings-section">
+        <label class="field-label">Target Roles</label>
+        <input type="text" id="targetRoles" class="field-input" placeholder="AI Lead, ML Engineer, ...">
+        <small class="field-hint">Comma-separated</small>
+      </div>
+      <div class="settings-section">
+        <label class="field-label">Locations</label>
+        <input type="text" id="targetLocations" class="field-input" placeholder="Gurgaon, Remote, ...">
+        <small class="field-hint">Comma-separated</small>
+      </div>
+      <div class="settings-section">
+        <label class="field-label">Resume Summary / Skills</label>
+        <textarea id="resumeSummary" class="field-textarea" rows="6" placeholder="Paste your resume summary or key skills here..."></textarea>
+      </div>
+      <div class="settings-section checkbox-row">
+        <input type="checkbox" id="shareAnonymized">
+        <label for="shareAnonymized" class="checkbox-label">Allow anonymized matches to be shared with verified recruiters</label>
+      </div>
+      <button class="save-btn" id="saveProfileBtn">Save Profile</button>
+      <div class="save-confirm hidden" id="profileSaved">&#10003; Profile saved</div>
+    </div>
+
+    <!-- SAVED JOBS VIEW -->
+    <div id="savedView" class="hidden">
+      <div class="log-header-row">
+        <span class="log-title">Saved Jobs <span class="saved-count" id="savedCount"></span></span>
+        <button class="export-btn" id="exportCsvBtn">&#8659; Export CSV</button>
+      </div>
+      <div id="savedJobsList" class="saved-jobs-list">
+        <p class="empty-state">No saved jobs yet. Matches are saved here automatically.</p>
+      </div>
+    </div>
+
+  </main>
+
+  <!-- LOADING OVERLAY -->
+  <div id="loadingOverlay" class="loading-overlay hidden">
+    <div class="spinner"></div>
+    <p class="loading-text" id="loadingText">Analyzing job...</p>
+  </div>
+
+  <!-- BOTTOM NAV -->
+  <nav class="sp-nav">
+    <button class="nav-btn active" data-view="analysis" id="navAnalysis">
+      <span class="nav-icon">&#127968;</span>
+      <span class="nav-label">Analysis</span>
+    </button>
+    <button class="nav-btn" data-view="saved" id="navSaved">
+      <span class="nav-icon">&#128190;</span>
+      <span class="nav-label">Saved</span>
+    </button>
+    <button class="nav-btn" data-view="log" id="navLog">
+      <span class="nav-icon">&#128203;</span>
+      <span class="nav-label">Log</span>
+    </button>
+    <button class="nav-btn" data-view="settings" id="navSettings">
+      <span class="nav-icon">&#9881;</span>
+      <span class="nav-label">Settings</span>
+    </button>
+    <button class="nav-btn" data-view="profile" id="navProfile">
+      <span class="nav-icon">&#128100;</span>
+      <span class="nav-label">Profile</span>
+    </button>
+  </nav>
+
+  <script src="sidepanel.js"></script>
+</body>
+</html>
