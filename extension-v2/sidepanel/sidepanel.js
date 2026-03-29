@@ -147,7 +147,7 @@ document.addEventListener('DOMContentLoaded', () => {
     chrome.storage.local.get([
       'botRunning', 'aiModel', 'apiKey', 'groqApiKey', 'ollamaBackendUrl', 'ollamaModel',
       'targetRoles', 'targetLocations', 'resumeSummary',
-      'shareAnonymized', 'lastJob', 'theme'
+      'shareAnonymized', 'lastJob', 'theme', 'accentColor'
     ], (data) => {
       // Bot state
       botToggle.checked = !!data.botRunning;
@@ -156,10 +156,12 @@ document.addEventListener('DOMContentLoaded', () => {
       // Settings — treat legacy 'gemini' as 'free'
       const model = data.aiModel === 'gemini' ? 'free' : (data.aiModel || 'free');
       document.getElementById('aiModel').value = model;
-      if (data.apiKey)           document.getElementById('apiKey').value           = data.apiKey;
-      if (data.groqApiKey)       document.getElementById('groqApiKey').value       = data.groqApiKey;
-      if (data.ollamaBackendUrl) document.getElementById('ollamaBackendUrl').value = data.ollamaBackendUrl;
-      document.getElementById('ollamaModel').value = data.ollamaModel || 'llama3.2:1b';
+      // Highlight the selected card
+      document.querySelectorAll('.ai-option-card').forEach(c => {
+        c.classList.toggle('selected', c.dataset.value === model);
+      });
+      if (data.apiKey) document.getElementById('apiKey').value = data.apiKey;
+      if (data.groqApiKey) document.getElementById('groqApiKey').value = data.groqApiKey;
       toggleApiKeyField(model);
 
       // Profile
@@ -172,6 +174,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
       // Theme
       applyTheme(data.theme || 'dark');
+      applyAccent(data.accentColor || 'green');
 
       // Restore last job if any
       if (data.lastJob) {
@@ -188,6 +191,15 @@ document.addEventListener('DOMContentLoaded', () => {
       applyTheme(next);
       chrome.storage.local.set({ theme: next });
     });
+
+    // Accent color swatches
+    document.querySelectorAll('.swatch').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const color = btn.dataset.color;
+        applyAccent(color);
+        chrome.storage.local.set({ accentColor: color });
+      });
+    });
   }
 
   function applyTheme(theme) {
@@ -196,18 +208,40 @@ document.addEventListener('DOMContentLoaded', () => {
     themeBtn.title = `Theme: ${theme} (click to cycle)`;
   }
 
+  function applyAccent(color) {
+    document.documentElement.setAttribute('data-accent', color || 'green');
+    // Update active swatch
+    document.querySelectorAll('.swatch').forEach(s => {
+      s.classList.toggle('active', s.dataset.color === (color || 'green'));
+    });
+  }
+
   // ── Settings ───────────────────────────────────────────────────────────────
   function setupSettings() {
-    const modelSelect = document.getElementById('aiModel');
-    modelSelect.addEventListener('change', () => toggleApiKeyField(modelSelect.value));
+    // Card-based AI model selector
+    const aiModelInput = document.getElementById('aiModel');
+    const cards = document.querySelectorAll('.ai-option-card');
+
+    function selectModel(value) {
+      aiModelInput.value = value;
+      cards.forEach(c => c.classList.toggle('selected', c.dataset.value === value));
+      toggleApiKeyField(value);
+    }
+
+    cards.forEach(card => {
+      card.addEventListener('click', () => selectModel(card.dataset.value));
+    });
+
+    // "Why own key?" toggle
+    document.getElementById('whyOwnKey')?.addEventListener('click', () => {
+      document.getElementById('whyOwnKeyText').classList.toggle('hidden');
+    });
 
     document.getElementById('saveSettingsBtn').addEventListener('click', () => {
-      const aiModel       = modelSelect.value;
+      const aiModel       = aiModelInput.value;
       const apiKey        = document.getElementById('apiKey').value.trim();
       const groqApiKey    = document.getElementById('groqApiKey')?.value.trim() || '';
-      const ollamaBackendUrl = document.getElementById('ollamaBackendUrl')?.value.trim() || '';
-      const ollamaModel   = document.getElementById('ollamaModel')?.value.trim() || 'llama3.2:1b';
-      chrome.storage.local.set({ aiModel, apiKey, groqApiKey, ollamaBackendUrl, ollamaModel }, () => {
+      chrome.storage.local.set({ aiModel, apiKey, groqApiKey }, () => {
         showConfirm('settingsSaved');
       });
     });
@@ -220,11 +254,10 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function toggleApiKeyField(model) {
-    const section = document.getElementById('apiKeySection');
-    const label   = document.getElementById('apiKeyLabel');
+    const section     = document.getElementById('apiKeySection');
+    const label       = document.getElementById('apiKeyLabel');
     const freeSection = document.getElementById('freeModelSection');
 
-    // Show/hide free model fields
     if (freeSection) freeSection.classList.toggle('hidden', model !== 'free');
 
     if (model === 'free') {
@@ -238,13 +271,36 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // ── Profile ────────────────────────────────────────────────────────────────
   function setupProfile() {
-    document.getElementById('saveProfileBtn').addEventListener('click', () => {
+    document.getElementById('saveProfileBtn').addEventListener('click', async () => {
       const targetRoles     = document.getElementById('targetRoles').value;
       const targetLocations = document.getElementById('targetLocations').value;
       const resumeSummary   = document.getElementById('resumeSummary').value;
       const shareAnonymized = document.getElementById('shareAnonymized').checked;
-      chrome.storage.local.set({ targetRoles, targetLocations, resumeSummary, shareAnonymized }, () => {
+
+      chrome.storage.local.set({ targetRoles, targetLocations, resumeSummary, shareAnonymized }, async () => {
         showConfirm('profileSaved');
+
+        // Sync to recruiter platform if consent given
+        if (shareAnonymized && resumeSummary) {
+          try {
+            const res = await fetch('https://aijobassistant-production.railway.app/api/v1/profile/sync', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                shareAnonymized,
+                resumeSummary,
+                targetRoles,
+                targetLocations,
+                skills: resumeSummary // backend extracts skills from summary
+              })
+            });
+            if (res.ok) {
+              addLog('Profile synced to recruiter platform.', 'success');
+            }
+          } catch (_) {
+            // Non-fatal — local save already succeeded
+          }
+        }
       });
     });
   }

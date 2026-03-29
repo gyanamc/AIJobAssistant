@@ -1,32 +1,129 @@
 import os
+import json
+import hashlib
 import httpx
-from fastapi import FastAPI, HTTPException, status
+from fastapi import FastAPI, HTTPException, status, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
 from typing import List, Optional
+from sqlalchemy import create_engine, text
+from dotenv import load_dotenv
 
-app = FastAPI(
-    title="AI Job Assistant API",
-    description="Backend for AI Job Assistant Chrome extension.",
-    version="2.0.0"
-)
+load_dotenv()
 
-# Allow requests from Chrome extensions
+app = FastAPI(title="AI Job Assistant API", version="3.0.0")
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_methods=["POST", "GET"],
+    allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# ── Health check ──────────────────────────────────────────────────────────────
+# ── Config ────────────────────────────────────────────────────────────────────
+OLLAMA_HOST      = os.getenv("OLLAMA_HOST", "http://localhost:11434")
+DATABASE_URL     = os.getenv("DATABASE_URL", "sqlite:///./local.db")
+MAX_FREE_EVENTS  = int(os.getenv("MAX_FREE_EVENTS", "10"))
+SUPABASE_URL     = os.getenv("SUPABASE_URL", "")
+SUPABASE_KEY     = os.getenv("SUPABASE_SERVICE_KEY", "")
+
+if DATABASE_URL.startswith("postgres://"):
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
+
+engine = create_engine(DATABASE_URL)
+
+# ── DB Init ───────────────────────────────────────────────────────────────────
+def init_db():
+    with engine.connect() as conn:
+        conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS candidate_profiles (
+                id SERIAL PRIMARY KEY,
+                candidate_hash TEXT UNIQUE NOT NULL,
+                role_title TEXT,
+                skills TEXT,
+                location TEXT,
+                experience TEXT,
+                summary TEXT,
+                name_enc TEXT,
+                email_enc TEXT,
+                phone_enc TEXT,
+                embedding vector(768),
+                created_at TIMESTAMP DEFAULT NOW(),
+                updated_at TIMESTAMP DEFAULT NOW()
+            )
+        """))
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS recruiter_events (
+                id SERIAL PRIMARY KEY,
+                recruiter_id TEXT NOT NULL,
+                events_used INTEGER DEFAULT 0,
+                unmasked_candidates TEXT DEFAULT '[]',
+                created_at TIMESTAMP DEFAULT NOW()
+            )
+        """))
+        conn.commit()
+
+try:
+    init_db()
+except Exception as e:
+    print(f"DB init warning: {e}")
+
+# ── Auth ──────────────────────────────────────────────────────────────────────
+security = HTTPBearer(auto_error=False)
+
+async def get_recruiter_id(credentials: HTTPAuthorizationCredentials = Depends(security)) -> Optional[str]:
+    if not credentials:
+        return None
+    token = credentials.credentials
+    # Verify with Supabase
+    try:
+        async with httpx.AsyncClient() as client:
+            res = await client.get(
+                f"{SUPABASE_URL}/auth/v1/user",
+                headers={"Authorization": f"Bearer {token}", "apikey": SUPABASE_KEY}
+            )
+            if res.status_code == 200:
+                return res.json().get("id")
+    except Exception:
+        pass
+    return None
+
+# ── Ollama helpers ────────────────────────────────────────────────────────────
+async def embed(text_input: str) -> List[float]:
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        res = await client.post(f"{OLLAMA_HOST}/api/embeddings", json={
+            "model": "nomic-embed-text",
+            "prompt": text_input
+        })
+        if res.status_code != 200:
+            raise HTTPException(503, f"Embedding service error: {res.status_code}")
+        return res.json()["embedding"]
+
+async def llm_reason(jd: str, candidate_summary: str, rank: int) -> str:
+    prompt = (f"You are a recruitment assistant. Explain in 2 sentences why this candidate is ranked #{rank} "
+              f"for the following job.\n\nJob Description:\n{jd[:500]}\n\nCandidate Profile:\n{candidate_summary}\n\n"
+              f"Be specific about matching skills and experience. Return only the explanation.")
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            res = await client.post(f"{OLLAMA_HOST}/api/generate", json={
+                "model": "llama3.2:1b",
+                "prompt": prompt,
+                "stream": False
+            })
+            if res.status_code == 200:
+                return res.json().get("response", "").strip()
+    except Exception:
+        pass
+    return "Strong skills alignment with the job requirements."
+
+# ── Health ────────────────────────────────────────────────────────────────────
 @app.get("/")
-def health_check():
-    return {"status": "ok", "message": "AI Job Assistant backend is live."}
+def health():
+    return {"status": "ok", "version": "3.0.0"}
 
 # ── Ollama Proxy ──────────────────────────────────────────────────────────────
-OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
-
 class OllamaMessage(BaseModel):
     role: str
     content: str
@@ -39,39 +136,194 @@ class OllamaChatRequest(BaseModel):
 
 @app.post("/api/v1/ollama/chat")
 async def ollama_chat(request: OllamaChatRequest):
-    """
-    Proxy endpoint for Ollama. Forwards chat requests to the local Ollama instance.
-    The extension calls this when Groq is unavailable, providing a free fallback.
-    """
     payload = {
-        "model":    request.model,
+        "model": request.model,
         "messages": [{"role": m.role, "content": m.content} for m in request.messages],
-        "options":  request.options or {"temperature": 0.3},
-        "stream":   False
+        "options": request.options or {"temperature": 0.3},
+        "stream": False
     }
-
     try:
         async with httpx.AsyncClient(timeout=60.0) as client:
             res = await client.post(f"{OLLAMA_HOST}/api/chat", json=payload)
-
         if res.status_code != 200:
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail=f"Ollama returned {res.status_code}: {res.text[:200]}"
-            )
-
-        data = res.json()
-        # Ollama returns: {"message": {"role": "assistant", "content": "..."}}
-        content = data.get("message", {}).get("content", "")
-        return {"content": content}
-
+            raise HTTPException(503, f"Ollama returned {res.status_code}")
+        return {"content": res.json().get("message", {}).get("content", "")}
     except httpx.ConnectError:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Ollama service unavailable. Make sure Ollama is running."
-        )
+        raise HTTPException(503, "Ollama service unavailable.")
     except httpx.TimeoutException:
-        raise HTTPException(
-            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
-            detail="Ollama request timed out."
-        )
+        raise HTTPException(504, "Ollama request timed out.")
+
+# ── Profile Sync ──────────────────────────────────────────────────────────────
+class ProfileSyncRequest(BaseModel):
+    shareAnonymized: bool
+    resumeSummary: str
+    targetRoles: Optional[str] = ""
+    targetLocations: Optional[str] = ""
+    skills: Optional[str] = ""
+    name: Optional[str] = ""
+    email: Optional[str] = ""
+    phone: Optional[str] = ""
+
+@app.post("/api/v1/profile/sync")
+async def sync_profile(req: ProfileSyncRequest):
+    if not req.shareAnonymized:
+        raise HTTPException(403, "Candidate has not given consent to share profile.")
+
+    # Stable hash from email (or summary if no email)
+    raw_id = req.email or req.resumeSummary[:50]
+    candidate_hash = hashlib.sha256(raw_id.encode()).hexdigest()
+
+    # Build searchable text
+    profile_text = f"Role: {req.targetRoles}\nLocation: {req.targetLocations}\nSkills: {req.skills}\nSummary: {req.resumeSummary}"
+
+    embedding = await embed(profile_text)
+    embedding_str = "[" + ",".join(str(x) for x in embedding) + "]"
+
+    with engine.connect() as conn:
+        conn.execute(text("""
+            INSERT INTO candidate_profiles
+                (candidate_hash, role_title, skills, location, summary, name_enc, email_enc, phone_enc, embedding)
+            VALUES
+                (:hash, :role, :skills, :location, :summary, :name, :email, :phone, :emb::vector)
+            ON CONFLICT (candidate_hash) DO UPDATE SET
+                role_title = EXCLUDED.role_title,
+                skills     = EXCLUDED.skills,
+                location   = EXCLUDED.location,
+                summary    = EXCLUDED.summary,
+                name_enc   = EXCLUDED.name_enc,
+                email_enc  = EXCLUDED.email_enc,
+                phone_enc  = EXCLUDED.phone_enc,
+                embedding  = EXCLUDED.embedding,
+                updated_at = NOW()
+        """), {
+            "hash":     candidate_hash,
+            "role":     req.targetRoles,
+            "skills":   req.skills,
+            "location": req.targetLocations,
+            "summary":  req.resumeSummary[:1000],
+            "name":     req.name,
+            "email":    req.email,
+            "phone":    req.phone,
+            "emb":      embedding_str
+        })
+        conn.commit()
+
+    return {"status": "synced", "candidate_hash": candidate_hash[:8] + "..."}
+
+# ── Recruiter Search ──────────────────────────────────────────────────────────
+class SearchRequest(BaseModel):
+    jd: str
+    session_searched: bool = False  # frontend tracks if this is first search
+
+@app.post("/api/v1/recruiter/search")
+async def recruiter_search(req: SearchRequest, recruiter_id: Optional[str] = Depends(get_recruiter_id)):
+    # Second search requires auth
+    if req.session_searched and not recruiter_id:
+        raise HTTPException(401, "Sign in to continue searching.")
+
+    jd_embedding = await embed(req.jd)
+    emb_str = "[" + ",".join(str(x) for x in jd_embedding) + "]"
+
+    with engine.connect() as conn:
+        rows = conn.execute(text("""
+            SELECT id, candidate_hash, role_title, skills, location, summary,
+                   1 - (embedding <=> :emb::vector) AS score
+            FROM candidate_profiles
+            ORDER BY embedding <=> :emb::vector
+            LIMIT 20
+        """), {"emb": emb_str}).fetchall()
+
+    results = []
+    for rank, row in enumerate(rows, 1):
+        score = round(float(row.score) * 100, 1)
+        candidate_text = f"Role: {row.role_title}\nSkills: {row.skills}\nLocation: {row.location}\nSummary: {row.summary}"
+        reasoning = await llm_reason(req.jd, candidate_text, rank)
+        results.append({
+            "rank":          rank,
+            "candidate_id":  row.candidate_hash,
+            "role_title":    row.role_title or "—",
+            "skills":        row.skills or "—",
+            "location":      row.location or "—",
+            "match_score":   score,
+            "ai_reasoning":  reasoning,
+            "name":          "****",
+            "email":         "****",
+            "phone":         "****"
+        })
+
+    return {"results": results, "total": len(results)}
+
+# ── PII Unmask ────────────────────────────────────────────────────────────────
+class UnmaskRequest(BaseModel):
+    candidate_id: str
+
+@app.post("/api/v1/recruiter/unmask")
+async def unmask_candidate(req: UnmaskRequest, recruiter_id: Optional[str] = Depends(get_recruiter_id)):
+    if not recruiter_id:
+        raise HTTPException(401, "Sign in to view candidate details.")
+
+    with engine.connect() as conn:
+        # Get or create recruiter record
+        rec = conn.execute(text(
+            "SELECT events_used, unmasked_candidates FROM recruiter_events WHERE recruiter_id = :rid"
+        ), {"rid": recruiter_id}).fetchone()
+
+        if not rec:
+            conn.execute(text(
+                "INSERT INTO recruiter_events (recruiter_id, events_used, unmasked_candidates) VALUES (:rid, 0, '[]')"
+            ), {"rid": recruiter_id})
+            conn.commit()
+            events_used = 0
+            unmasked = []
+        else:
+            events_used = rec.events_used
+            unmasked = json.loads(rec.unmasked_candidates or "[]")
+
+        # Already unmasked — free repeat
+        if req.candidate_id in unmasked:
+            candidate = conn.execute(text(
+                "SELECT name_enc, email_enc, phone_enc FROM candidate_profiles WHERE candidate_hash = :h"
+            ), {"h": req.candidate_id}).fetchone()
+            if not candidate:
+                raise HTTPException(404, "Candidate not found.")
+            return {"name": candidate.name_enc, "email": candidate.email_enc, "phone": candidate.phone_enc}
+
+        # Check event limit
+        if events_used >= MAX_FREE_EVENTS:
+            raise HTTPException(402, f"Free tier limit of {MAX_FREE_EVENTS} events reached.")
+
+        # Fetch PII
+        candidate = conn.execute(text(
+            "SELECT name_enc, email_enc, phone_enc FROM candidate_profiles WHERE candidate_hash = :h"
+        ), {"h": req.candidate_id}).fetchone()
+        if not candidate:
+            raise HTTPException(404, "Candidate not found.")
+
+        # Deduct event
+        unmasked.append(req.candidate_id)
+        conn.execute(text("""
+            UPDATE recruiter_events
+            SET events_used = events_used + 1, unmasked_candidates = :uc
+            WHERE recruiter_id = :rid
+        """), {"uc": json.dumps(unmasked), "rid": recruiter_id})
+        conn.commit()
+
+    return {"name": candidate.name_enc, "email": candidate.email_enc, "phone": candidate.phone_enc}
+
+# ── Events Status ─────────────────────────────────────────────────────────────
+@app.get("/api/v1/recruiter/events")
+async def get_events(recruiter_id: Optional[str] = Depends(get_recruiter_id)):
+    if not recruiter_id:
+        raise HTTPException(401, "Authentication required.")
+
+    with engine.connect() as conn:
+        rec = conn.execute(text(
+            "SELECT events_used FROM recruiter_events WHERE recruiter_id = :rid"
+        ), {"rid": recruiter_id}).fetchone()
+
+    used = rec.events_used if rec else 0
+    return {
+        "events_used":      used,
+        "events_remaining": max(0, MAX_FREE_EVENTS - used),
+        "free_tier_limit":  MAX_FREE_EVENTS
+    }
