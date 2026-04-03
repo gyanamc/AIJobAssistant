@@ -175,40 +175,78 @@
     <!-- SETTINGS VIEW -->
     <div id="settingsView" class="hidden">
       <div class="settings-section">
-        <label class="field-label">AI Model</label>
-        <select id="aiModel" class="field-select">
-          <option value="free">Free (Groq + Ollama fallback)</option>
-          <option value="openai">OpenAI GPT-4o mini</option>
-          <option value="gemini_api">Google Gemini 1.5 Flash</option>
-          <option value="anthropic">Anthropic Claude 3.5 Sonnet</option>
-        </select>
+        <label class="field-label">AI Engine</label>
+
+        <!-- Free option — glowing recommended card -->
+        <div class="ai-option-card ai-option-free" id="optionFree" data-value="free">
+          <div class="ai-option-badge">✨ Recommended</div>
+          <div class="ai-option-title">🚀 Use for Free</div>
+          <div class="ai-option-desc">No API key needed. Powered by our hosted AI — just start using it.</div>
+        </div>
+
+        <!-- Divider -->
+        <div class="ai-option-divider">
+          <span>or bring your own key</span>
+          <span class="ai-option-why" id="whyOwnKey">Why? &#9432;</span>
+        </div>
+        <div class="ai-option-why-text hidden" id="whyOwnKeyText">
+          Using your own API key gives you <strong>higher accuracy</strong>, <strong>faster responses</strong>, and <strong>no usage limits</strong>. Great if you already have an OpenAI, Gemini, or Anthropic account.
+        </div>
+
+        <!-- Own key options -->
+        <div class="ai-own-key-options">
+          <div class="ai-option-card" id="optionOpenai" data-value="openai">
+            <div class="ai-option-title">OpenAI GPT-4o mini</div>
+            <div class="ai-option-desc">Fast &amp; accurate. Best overall quality.</div>
+          </div>
+          <div class="ai-option-card" id="optionGemini" data-value="gemini_api">
+            <div class="ai-option-title">Google Gemini Flash</div>
+            <div class="ai-option-desc">Free tier available. Great for high volume.</div>
+          </div>
+          <div class="ai-option-card" id="optionAnthropic" data-value="anthropic">
+            <div class="ai-option-title">Anthropic Claude</div>
+            <div class="ai-option-desc">Excellent reasoning &amp; nuanced matching.</div>
+          </div>
+        </div>
+
+        <!-- Hidden actual select for form submission -->
+        <input type="hidden" id="aiModel" value="free">
       </div>
+
       <div class="settings-section hidden" id="apiKeySection">
         <label class="field-label" id="apiKeyLabel">API Key</label>
         <input type="password" id="apiKey" class="field-input" placeholder="Paste your API key...">
-        <small class="field-hint">Stored locally in your browser only.</small>
+        <small class="field-hint">Stored locally in your browser only. Never sent to our servers.</small>
       </div>
 
-      <!-- Free tier fields — shown when "free" model is selected -->
+      <!-- Free tier Groq key — shown when free is selected -->
       <div id="freeModelSection">
         <div class="settings-section">
-          <label class="field-label">Groq API Key <span class="field-optional">(optional — faster)</span></label>
+          <label class="field-label">Groq API Key <span class="field-optional">(optional — even faster)</span></label>
           <input type="password" id="groqApiKey" class="field-input" placeholder="gsk_...">
-          <small class="field-hint">Free key from <a class="settings-link" href="https://console.groq.com" target="_blank">console.groq.com</a> — no credit card needed. Used first, falls back to Ollama if unavailable.</small>
-        </div>
-        <div class="settings-section">
-          <label class="field-label">Ollama Backend URL <span class="field-optional">(fallback)</span></label>
-          <input type="text" id="ollamaBackendUrl" class="field-input" placeholder="https://your-app.railway.app">
-          <small class="field-hint">Your Railway.app deployment URL. Used when Groq is unavailable.</small>
-        </div>
-        <div class="settings-section">
-          <label class="field-label">Ollama Model</label>
-          <input type="text" id="ollamaModel" class="field-input" placeholder="llama3.2:1b" value="llama3.2:1b">
-          <small class="field-hint">Model installed on your Ollama server. Default: llama3.2:1b</small>
+          <small class="field-hint">Free key from <a class="settings-link" href="https://console.groq.com" target="_blank">console.groq.com</a> — no credit card. Makes the free tier significantly faster.</small>
         </div>
       </div>
       <button class="save-btn" id="saveSettingsBtn">Save Settings</button>
       <div class="save-confirm hidden" id="settingsSaved">&#10003; Settings saved</div>
+
+      <div class="settings-divider">Appearance</div>
+
+      <div class="settings-section">
+        <label class="field-label">Accent Color</label>
+        <div class="color-swatches" id="colorSwatches">
+          <button class="swatch active" data-color="green"   style="background:#00c853" title="Green (default)"></button>
+          <button class="swatch"        data-color="blue"    style="background:#2979ff" title="Blue"></button>
+          <button class="swatch"        data-color="purple"  style="background:#aa00ff" title="Purple"></button>
+          <button class="swatch"        data-color="pink"    style="background:#f50057" title="Pink"></button>
+          <button class="swatch"        data-color="orange"  style="background:#ff6d00" title="Orange"></button>
+          <button class="swatch"        data-color="teal"    style="background:#00bcd4" title="Teal"></button>
+          <button class="swatch"        data-color="red"     style="background:#d50000" title="Red"></button>
+          <button class="swatch"        data-color="black"   style="background:#424242" title="Charcoal"></button>
+        </div>
+        <small class="field-hint">Changes button and highlight colors across the extension.</small>
+      </div>
+
       <button class="clear-history-btn" id="clearHistoryBtn">&#128465; Clear processed job history</button>
       <div class="save-confirm hidden" id="historyClearedMsg">&#10003; History cleared — all jobs will be re-evaluated</div>
     </div>
