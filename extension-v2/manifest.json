@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "AI Job Assistant",
-  "version": "2.0.1",
+  "version": "2.0.2",
   "description": "AI-powered job evaluation and matching. Supports OpenAI, Gemini, and Anthropic.",
   "permissions": [
     "storage",
@@ -18,7 +18,9 @@
     "https://api.anthropic.com/*",
     "https://generativelanguage.googleapis.com/*",
     "https://sheets.googleapis.com/*",
-    "https://accounts.google.com/*"
+    "https://accounts.google.com/*",
+    "https://api.groq.com/*",
+    "https://*.railway.app/*"
   ],
   "action": {
     "default_title": "AI Job Assistant",
