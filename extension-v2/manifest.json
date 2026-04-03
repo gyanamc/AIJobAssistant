@@ -6,7 +6,6 @@
   "permissions": [
     "storage",
     "activeTab",
-    "identity",
     "sidePanel",
     "tabs",
     "downloads"
@@ -17,8 +16,6 @@
     "https://api.openai.com/*",
     "https://api.anthropic.com/*",
     "https://generativelanguage.googleapis.com/*",
-    "https://sheets.googleapis.com/*",
-    "https://accounts.google.com/*",
     "https://api.groq.com/*",
     "https://*.railway.app/*"
   ],
