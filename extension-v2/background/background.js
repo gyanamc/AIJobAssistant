@@ -2,7 +2,7 @@
 
 console.log('AI Job Assistant v2 background worker started.');
 
-const BACKEND_URL = 'https://aijobassistant-production.railway.app';
+const BACKEND_URL = 'https://aijobassistant-production.up.railway.app';
 
 // ── In-flight job deduplication ───────────────────────────────────────────
 // Background is the only stable context across SPA navigations.

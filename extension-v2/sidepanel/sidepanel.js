@@ -354,7 +354,7 @@ document.addEventListener('DOMContentLoaded', () => {
         // Sync to recruiter platform if consent given
         if (shareAnonymized && resumeSummary) {
           try {
-            const res = await fetch('https://aijobassistant-production.railway.app/api/v1/profile/sync', {
+            const res = await fetch('https://aijobassistant-production.up.railway.app/api/v1/profile/sync', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
