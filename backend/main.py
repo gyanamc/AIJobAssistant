@@ -123,6 +123,47 @@ async def llm_reason(jd: str, candidate_summary: str, rank: int) -> str:
 def health():
     return {"status": "ok", "version": "3.0.0"}
 
+# ── Groq Proxy ────────────────────────────────────────────────────────────────
+GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
+
+class GroqMessage(BaseModel):
+    role: str
+    content: str
+
+class GroqChatRequest(BaseModel):
+    model: str = "llama-3.1-8b-instant"
+    messages: List[GroqMessage]
+    temperature: float = 0.3
+    max_tokens: int = 600
+    response_format: Optional[dict] = None
+
+@app.post("/api/v1/groq/chat")
+async def groq_chat(request: GroqChatRequest):
+    if not GROQ_API_KEY:
+        raise HTTPException(503, "Groq service not configured.")
+    payload = {
+        "model": request.model,
+        "messages": [{"role": m.role, "content": m.content} for m in request.messages],
+        "temperature": request.temperature,
+        "max_tokens": request.max_tokens,
+    }
+    if request.response_format:
+        payload["response_format"] = request.response_format
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            res = await client.post(
+                "https://api.groq.com/openai/v1/chat/completions",
+                headers={"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"},
+                json=payload
+            )
+        if res.status_code != 200:
+            raise HTTPException(res.status_code, f"Groq returned {res.status_code}")
+        return res.json()
+    except httpx.ConnectError:
+        raise HTTPException(503, "Groq service unavailable.")
+    except httpx.TimeoutException:
+        raise HTTPException(504, "Groq request timed out.")
+
 # ── Ollama Proxy ──────────────────────────────────────────────────────────────
 class OllamaMessage(BaseModel):
     role: str
