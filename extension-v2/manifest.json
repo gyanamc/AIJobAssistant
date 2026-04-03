@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "AI Job Assistant",
-  "version": "2.0.2",
-  "description": "AI-powered job evaluation and matching. Supports OpenAI, Gemini, and Anthropic.",
+  "version": "2.0.3",
+  "description": "AI-powered job matcher for LinkedIn and Naukri. Auto-evaluates jobs against your resume. Free to use.",
   "permissions": [
     "storage",
     "activeTab",
