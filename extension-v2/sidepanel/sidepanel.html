@@ -174,43 +174,88 @@
 
     <!-- SETTINGS VIEW -->
     <div id="settingsView" class="hidden">
+
+      <!-- Mode selector -->
       <div class="settings-section">
-        <label class="field-label">AI Model</label>
-        <select id="aiModel" class="field-select">
-          <option value="free">Free (Groq + Ollama fallback)</option>
-          <option value="openai">OpenAI GPT-4o mini</option>
-          <option value="gemini_api">Google Gemini 1.5 Flash</option>
-          <option value="anthropic">Anthropic Claude 3.5 Sonnet</option>
-        </select>
-      </div>
-      <div class="settings-section hidden" id="apiKeySection">
-        <label class="field-label" id="apiKeyLabel">API Key</label>
-        <input type="password" id="apiKey" class="field-input" placeholder="Paste your API key...">
-        <small class="field-hint">Stored locally in your browser only.</small>
+        <label class="field-label">AI Mode</label>
+        <div class="mode-selector">
+          <button class="mode-btn active" id="modeFree" data-mode="free">
+            Free Use
+            <span class="mode-tag">Recommended</span>
+          </button>
+          <button class="mode-btn" id="modeBYOK" data-mode="byok">
+            BYOK
+            <span class="mode-tag-muted">Bring Your Own Key</span>
+          </button>
+        </div>
+        <small class="field-hint" id="modeHint">Uses our servers — no API key needed.</small>
       </div>
 
-      <!-- Free tier fields — shown when "free" model is selected -->
-      <div id="freeModelSection">
+      <!-- BYOK provider cards — hidden by default -->
+      <div id="byokSection" class="hidden">
         <div class="settings-section">
-          <label class="field-label">Groq API Key <span class="field-optional">(optional — faster)</span></label>
-          <input type="password" id="groqApiKey" class="field-input" placeholder="gsk_...">
-          <small class="field-hint">Free key from <a class="settings-link" href="https://console.groq.com" target="_blank">console.groq.com</a> — no credit card needed. Used first, falls back to Ollama if unavailable.</small>
-        </div>
-        <div class="settings-section">
-          <label class="field-label">Ollama Backend URL <span class="field-optional">(fallback)</span></label>
-          <input type="text" id="ollamaBackendUrl" class="field-input" placeholder="https://your-app.railway.app">
-          <small class="field-hint">Your Railway.app deployment URL. Used when Groq is unavailable.</small>
-        </div>
-        <div class="settings-section">
-          <label class="field-label">Ollama Model</label>
-          <input type="text" id="ollamaModel" class="field-input" placeholder="llama3.2:1b" value="llama3.2:1b">
-          <small class="field-hint">Model installed on your Ollama server. Default: llama3.2:1b</small>
+          <label class="field-label">Select Provider</label>
+          <div class="byok-providers">
+            <button class="provider-btn" id="providerOpenAI" data-provider="openai">
+              <div class="provider-left">
+                <span class="provider-icon">&#129302;</span>
+                <div class="provider-info">
+                  <span class="provider-name">OpenAI</span>
+                  <span class="provider-model">GPT-4o mini</span>
+                </div>
+              </div>
+              <span class="provider-key-status" id="statusOpenAI"></span>
+            </button>
+            <button class="provider-btn" id="providerGemini" data-provider="gemini_api">
+              <div class="provider-left">
+                <span class="provider-icon">&#10024;</span>
+                <div class="provider-info">
+                  <span class="provider-name">Google Gemini</span>
+                  <span class="provider-model">Gemini 1.5 Flash</span>
+                </div>
+              </div>
+              <span class="provider-key-status" id="statusGemini"></span>
+            </button>
+            <button class="provider-btn" id="providerAnthropic" data-provider="anthropic">
+              <div class="provider-left">
+                <span class="provider-icon">&#129504;</span>
+                <div class="provider-info">
+                  <span class="provider-name">Anthropic</span>
+                  <span class="provider-model">Claude 3.5 Sonnet</span>
+                </div>
+              </div>
+              <span class="provider-key-status" id="statusAnthropic"></span>
+            </button>
+          </div>
         </div>
       </div>
+
+      <!-- Hidden fields for background.js compatibility -->
+      <input type="hidden" id="aiModel" value="free">
+      <input type="hidden" id="apiKey" value="">
+      <input type="hidden" id="groqApiKey" value="">
+
       <button class="save-btn" id="saveSettingsBtn">Save Settings</button>
       <div class="save-confirm hidden" id="settingsSaved">&#10003; Settings saved</div>
       <button class="clear-history-btn" id="clearHistoryBtn">&#128465; Clear processed job history</button>
       <div class="save-confirm hidden" id="historyClearedMsg">&#10003; History cleared — all jobs will be re-evaluated</div>
+    </div>
+
+    <!-- API KEY MODAL -->
+    <div id="apiKeyModal" class="modal-overlay hidden">
+      <div class="modal-box">
+        <div class="modal-header">
+          <span class="modal-title" id="modalTitle">Enter API Key</span>
+          <button class="modal-close" id="modalClose">&#10005;</button>
+        </div>
+        <p class="modal-hint" id="modalHint"></p>
+        <input type="password" id="modalApiKeyInput" class="field-input" placeholder="Paste your API key...">
+        <small class="field-hint">Stored locally in your browser only. Never sent to our servers.</small>
+        <div class="modal-actions">
+          <button class="modal-cancel-btn" id="modalCancel">Cancel</button>
+          <button class="modal-save-btn" id="modalSaveKey">Save Key</button>
+        </div>
+      </div>
     </div>
 
     <!-- PROFILE VIEW -->

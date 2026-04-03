@@ -2,10 +2,9 @@
 
 console.log('AI Job Assistant v2 background worker started.');
 
-// ── Constants ─────────────────────────────────────────────────────────────
-const DEFAULT_OLLAMA_URL  = 'https://aijobassistant-production.up.railway.app';
-const DEFAULT_GROQ_KEY    = 'gsk' + '_p83O6GGOhzJjlnTi4bWDWGdyb3FYyra50jgxo4eYkVwyXz4ibtsA';
-const DEFAULT_OLLAMA_MODEL = 'llama3.2:1b';
+const BACKEND_URL = 'https://aijobassistant-production.railway.app';
+
+// ── In-flight job deduplication ───────────────────────────────────────────
 // Background is the only stable context across SPA navigations.
 // Content scripts get re-injected on every URL change — this Set prevents
 // the same job from being evaluated more than once per session.
@@ -194,29 +193,59 @@ function guessPriority(text) {
   return 'important';
 }
 
-// ── Free tier: Groq → Ollama fallback ────────────────────────────────────
+// ── Free tier: Backend → Groq → Ollama fallback ──────────────────────────
 async function evalWithFree(jobData, storage) {
-  const groqKey  = storage.groqApiKey  || DEFAULT_GROQ_KEY;
-  const ollamaUrl = storage.ollamaBackendUrl || DEFAULT_OLLAMA_URL;
+  // 1. Try backend (server-side key — no user config needed)
+  const backendResult = await evalWithBackend(jobData, storage);
+  if (backendResult.success) {
+    log('Used free backend for evaluation.');
+    return backendResult;
+  }
+  log(`Backend unavailable (${backendResult.error}) — trying fallbacks...`);
 
-  // Try Groq first
-  if (groqKey) {
-    const groqResult = await evalWithGroq(jobData, { ...storage, groqApiKey: groqKey });
+  // 2. Try user's Groq key if set
+  if (storage.groqApiKey) {
+    const groqResult = await evalWithGroq(jobData, storage);
     if (groqResult.success) {
       log('Used Groq for evaluation.');
       return groqResult;
     }
-    log(`Groq failed (${groqResult.error}) — falling back to Ollama...`);
+    log(`Groq failed (${groqResult.error}) — trying Ollama...`);
   }
 
-  // Fall back to Ollama
-  const ollamaResult = await evalWithOllama(jobData, { ...storage, ollamaBackendUrl: ollamaUrl });
-  if (ollamaResult.success) {
-    log('Used Ollama for evaluation.');
-    return ollamaResult;
+  // 3. Try Ollama if configured
+  if (storage.ollamaBackendUrl) {
+    const ollamaResult = await evalWithOllama(jobData, storage);
+    if (ollamaResult.success) {
+      log('Used Ollama for evaluation.');
+      return ollamaResult;
+    }
+    log(`Ollama also failed: ${ollamaResult.error}`);
   }
-  log(`Ollama also failed: ${ollamaResult.error}`);
-  return { success: false, error: `Free LLM unavailable. Groq: failed. Ollama: ${ollamaResult.error}` };
+
+  return { success: false, error: 'All free evaluation methods failed. Please try again later.' };
+}
+
+async function evalWithBackend(jobData, storage) {
+  try {
+    const res = await fetch(`${BACKEND_URL}/api/v1/evaluate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        jobTitle:      jobData.title       || '',
+        company:       jobData.company     || '',
+        description:   jobData.description || '',
+        resumeSummary: storage.resumeSummary || ''
+      })
+    });
+    if (!res.ok) throw new Error(`Backend HTTP ${res.status}`);
+    const data    = await res.json();
+    const content = data.evaluation;
+    log(`Match: ${content.is_match} — ${content.reasoning?.substring(0, 60)}...`);
+    return { success: true, evaluation: content };
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
 }
 
 async function evalWithGroq(jobData, storage) {
@@ -369,26 +398,42 @@ async function callLLM(storage, prompt) {
   const model = storage.aiModel === 'gemini' ? 'free' : (storage.aiModel || 'free');
 
   if (model === 'free') {
-    const groqKey   = storage.groqApiKey  || DEFAULT_GROQ_KEY;
-    const ollamaUrl = (storage.ollamaBackendUrl || DEFAULT_OLLAMA_URL).replace(/\/$/, '');
-    const ollamaModel = storage.ollamaModel || DEFAULT_OLLAMA_MODEL;
-
-    if (groqKey) {
+    // 1. Try backend
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/v1/evaluate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          jobTitle: '', company: '', description: prompt,
+          resumeSummary: storage.resumeSummary || ''
+        })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        return data.evaluation?.cover_letter || data.evaluation?.reasoning || JSON.stringify(data.evaluation);
+      }
+    } catch (_) {}
+    // 2. Try user's Groq key
+    if (storage.groqApiKey) {
       try {
         const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${groqKey}` },
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${storage.groqApiKey}` },
           body: JSON.stringify({ model: 'llama-3.1-8b-instant', messages: [{ role: 'user', content: prompt }], temperature: 0.5, max_tokens: 800 })
         });
         if (res.ok) return (await res.json()).choices[0].message.content;
       } catch (_) {}
     }
-    const res = await fetch(`${ollamaUrl}/api/v1/ollama/chat`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model: ollamaModel, messages: [{ role: 'user', content: prompt }] })
-    });
-    if (res.ok) return (await res.json()).content;
+    // 3. Try Ollama
+    if (storage.ollamaBackendUrl) {
+      const baseUrl = storage.ollamaBackendUrl.replace(/\/$/, '');
+      const res = await fetch(`${baseUrl}/api/v1/ollama/chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model: storage.ollamaModel || 'llama3.2:1b', messages: [{ role: 'user', content: prompt }] })
+      });
+      if (res.ok) return (await res.json()).content;
+    }
     throw new Error('Free LLM unavailable for this action.');
   }
 

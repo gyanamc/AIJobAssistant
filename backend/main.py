@@ -310,6 +310,57 @@ async def unmask_candidate(req: UnmaskRequest, recruiter_id: Optional[str] = Dep
 
     return {"name": candidate.name_enc, "email": candidate.email_enc, "phone": candidate.phone_enc}
 
+# ── Job Evaluation (server-side key) ─────────────────────────────────────────
+class EvaluateRequest(BaseModel):
+    jobTitle: str
+    company: str
+    description: str
+    resumeSummary: str
+
+@app.post("/api/v1/evaluate")
+async def evaluate_job(req: EvaluateRequest):
+    groq_key = os.getenv("GROQ_API_KEY")
+    if not groq_key:
+        raise HTTPException(503, "Evaluation service not configured.")
+
+    system_prompt = (
+        "You are an expert AI career assistant evaluating job matches. "
+        "Respond with EXACTLY valid JSON with these keys:\n"
+        '- "is_match": boolean\n'
+        '- "reasoning": string (2-3 sentences explaining the match decision)\n'
+        '- "cover_letter": string (short 2-paragraph cover letter if is_match is true, else empty string)'
+    )
+    user_prompt = (
+        f"Resume Summary:\n{req.resumeSummary or 'Not provided'}\n\n"
+        f"Job Title: {req.jobTitle}\nCompany: {req.company}\n"
+        f"Description:\n{req.description[:2000]}"
+    )
+
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            res = await client.post(
+                "https://api.groq.com/openai/v1/chat/completions",
+                headers={"Authorization": f"Bearer {groq_key}", "Content-Type": "application/json"},
+                json={
+                    "model": "llama-3.1-8b-instant",
+                    "messages": [
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user",   "content": user_prompt}
+                    ],
+                    "response_format": {"type": "json_object"},
+                    "temperature": 0.3,
+                    "max_tokens": 600
+                }
+            )
+        if res.status_code != 200:
+            raise HTTPException(502, f"Groq returned {res.status_code}")
+        evaluation = res.json()["choices"][0]["message"]["content"]
+        return {"evaluation": json.loads(evaluation)}
+    except json.JSONDecodeError:
+        raise HTTPException(502, "Invalid JSON from evaluation model.")
+    except httpx.TimeoutException:
+        raise HTTPException(504, "Evaluation service timed out.")
+
 # ── Events Status ─────────────────────────────────────────────────────────────
 @app.get("/api/v1/recruiter/events")
 async def get_events(recruiter_id: Optional[str] = Depends(get_recruiter_id)):

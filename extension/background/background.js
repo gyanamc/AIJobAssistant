@@ -9,6 +9,17 @@ chrome.storage.local.get(['botRunning'], (data) => {
     isRunning = !!data.botRunning;
 });
 
+// ---------- Persistent Anonymous ID ----------
+async function getOrCreateCandidateId() {
+    const storage = await chrome.storage.local.get(['candidate_id_hash']);
+    if (storage.candidate_id_hash) {
+        return storage.candidate_id_hash;
+    }
+    const newId = crypto.randomUUID();
+    await chrome.storage.local.set({ candidate_id_hash: newId });
+    return newId;
+}
+
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     if (request.type === 'TOGGLE_BOT') {
         isRunning = request.state;
@@ -46,19 +57,35 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 });
 
 async function evaluateJobWithLLM(jobData) {
-    // Get stored data
-    const storage = await chrome.storage.local.get(['aiModel', 'apiKey', 'resumeSummary', 'sheetUrl']);
+    // Get stored data including consent flag
+    const storage = await chrome.storage.local.get(['aiModel', 'apiKey', 'resumeSummary', 'sheetUrl', 'shareAnonymized']);
     const modelPreference = storage.aiModel || 'gemini';
+    const userConsent = storage.shareAnonymized !== false; // true by default
 
+    let result;
     if (modelPreference === 'gemini') {
-        return await evaluateWithGemini(jobData, storage);
+        result = await evaluateWithGemini(jobData, storage);
     } else if (modelPreference === 'gemini_api') {
-        return await evaluateWithGeminiAPI(jobData, storage);
+        result = await evaluateWithGeminiAPI(jobData, storage);
     } else if (modelPreference === 'anthropic') {
-        return await evaluateWithAnthropic(jobData, storage);
+        result = await evaluateWithAnthropic(jobData, storage);
     } else {
-        return await evaluateWithOpenAI(jobData, storage);
+        result = await evaluateWithGroq(jobData, storage);
     }
+
+    // Bridge to GyanamOS backend — silent fail if server is down
+    if (result?.success && result?.evaluation?.is_match === true && userConsent) {
+        const candidateId = await getOrCreateCandidateId();
+        await syncMatchToGyanamOS({
+            candidate_id_hash: candidateId,
+            job_title: jobData.title,
+            company_name: jobData.company,
+            job_url: jobData.url,
+            reasoning: result.evaluation.reasoning
+        });
+    }
+
+    return result;
 }
 
 async function evaluateWithGemini(jobData, storage) {
@@ -122,33 +149,24 @@ Respond with EXACTLY valid JSON containing only two keys: "is_match" (boolean) a
     }
 }
 
-async function evaluateWithOpenAI(jobData, storage) {
-    sendLogToPopup(`Evaluating with OpenAI: ${jobData.title}`);
-    
-    if (!storage.apiKey) {
-        sendLogToPopup("ERROR: No API Key found.");
-        return { success: false, error: "Missing API Key" };
-    }
+async function evaluateWithGroq(jobData, storage) {
+    sendLogToPopup(`Evaluating with Groq: ${jobData.title}`);
 
     // LLM Prompt configuration
     const systemPrompt = `You are a career assistant. I am applying for jobs. Evaluate this job description based on my resume summary.
 Format your response as a JSON object: {"is_match": true|false, "reasoning": "brief explanation"}`;
 
-    const userMessage = `My Resume/Skills: ${storage.resumeSummary || 'Not provided'}
-Job Title: ${jobData.title}
-Job Company: ${jobData.company}
-Job Description:
-${jobData.description}`;
+    const userMessage = `My Resume/Skills: ${storage.resumeSummary || 'Not provided'}\\nJob Title: ${jobData.title}\\nJob Company: ${jobData.company}\\nJob Description:\\n${jobData.description}`;
 
     try {
-        const response = await fetch('https://api.openai.com/v1/chat/completions', {
+        const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'Authorization': `Bearer ${storage.apiKey}`
+                'Authorization': `Bearer ${storage.groqApiKey || ''}`
             },
             body: JSON.stringify({
-                model: 'gpt-4o-mini', // Using mini for cost/speed
+                model: 'llama-3.1-8b-instant', // Active model on Groq
                 messages: [
                     { role: 'system', content: systemPrompt },
                     { role: 'user', content: userMessage }
@@ -158,7 +176,7 @@ ${jobData.description}`;
             })
         });
 
-        if (!response.ok) throw new Error(`OpenAI API error: ${response.status}`);
+        if (!response.ok) throw new Error(`Groq API error: ${response.status}`);
         
         const jsonResponse = await response.json();
         const content = JSON.parse(jsonResponse.choices[0].message.content);
@@ -317,6 +335,31 @@ async function appendToGoogleSheets(jobData, evaluation, sheetId) {
             }
         });
     });
+}
+
+// ---------- Bridge to GyanamOS Backend ----------
+async function syncMatchToGyanamOS(matchData) {
+    try {
+        const response = await fetch('https://gyanam.store/api/v1/submit-match', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                candidate_id_hash: matchData.candidate_id_hash,
+                job_title: matchData.job_title,
+                company_name: matchData.company_name,
+                job_url: matchData.job_url,
+                fit_score: 95.0,       // Signals a confirmed AI match (is_match == true)
+                reasoning: matchData.reasoning,
+                top_skills: []          // Future: extract from resume summary
+            })
+        });
+        if (response.ok) {
+            sendLogToPopup('📡 Match synced to GyanamOS recruiter feed.');
+        }
+    } catch (e) {
+        // Silent fail — never let a backend outage break the user experience
+        console.warn('GyanamOS sync failed silently:', e.message);
+    }
 }
 
 function sendLogToPopup(message) {

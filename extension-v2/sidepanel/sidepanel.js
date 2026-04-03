@@ -145,7 +145,8 @@ document.addEventListener('DOMContentLoaded', () => {
   // ── Load stored data ───────────────────────────────────────────────────────
   function loadStoredData() {
     chrome.storage.local.get([
-      'botRunning', 'aiModel', 'apiKey', 'groqApiKey', 'ollamaBackendUrl', 'ollamaModel',
+      'botRunning', 'aiMode', 'aiModel', 'byokProvider',
+      'openaiKey', 'geminiKey', 'anthropicKey',
       'targetRoles', 'targetLocations', 'resumeSummary',
       'shareAnonymized', 'lastJob', 'theme', 'accentColor'
     ], (data) => {
@@ -153,24 +154,25 @@ document.addEventListener('DOMContentLoaded', () => {
       botToggle.checked = !!data.botRunning;
       updateBotUI(!!data.botRunning);
 
-      // Settings — treat legacy 'gemini' as 'free'
-      const model = data.aiModel === 'gemini' ? 'free' : (data.aiModel || 'free');
-      document.getElementById('aiModel').value = model;
-      // Highlight the selected card
-      document.querySelectorAll('.ai-option-card').forEach(c => {
-        c.classList.toggle('selected', c.dataset.value === model);
-      });
-      if (data.apiKey) document.getElementById('apiKey').value = data.apiKey;
-      if (data.groqApiKey) document.getElementById('groqApiKey').value = data.groqApiKey;
-      toggleApiKeyField(model);
+      // Settings mode
+      const mode = data.aiMode || 'free';
+      applyMode(mode);
+
+      // BYOK provider active state
+      if (data.byokProvider) {
+        applyProvider(data.byokProvider, false);
+      }
+
+      // Provider key status indicators
+      updateKeyStatus('openai',     !!data.openaiKey);
+      updateKeyStatus('gemini_api', !!data.geminiKey);
+      updateKeyStatus('anthropic',  !!data.anthropicKey);
 
       // Profile
       if (data.targetRoles)     document.getElementById('targetRoles').value     = data.targetRoles;
       if (data.targetLocations) document.getElementById('targetLocations').value = data.targetLocations;
       if (data.resumeSummary)   document.getElementById('resumeSummary').value   = data.resumeSummary;
       document.getElementById('shareAnonymized').checked = data.shareAnonymized !== false;
-
-      // Resume filename — field removed, no-op
 
       // Theme
       applyTheme(data.theme || 'dark');
@@ -217,33 +219,118 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // ── Settings ───────────────────────────────────────────────────────────────
-  function setupSettings() {
-    // Card-based AI model selector
+  let _currentMode     = 'free';
+  let _currentProvider = null;   // 'openai' | 'gemini_api' | 'anthropic'
+  let _pendingProvider = null;   // provider whose modal is open
+
+  function applyMode(mode) {
+    _currentMode = mode;
+    document.getElementById('modeFree').classList.toggle('active', mode === 'free');
+    document.getElementById('modeBYOK').classList.toggle('active', mode === 'byok');
+    document.getElementById('byokSection').classList.toggle('hidden', mode !== 'byok');
+    document.getElementById('modeHint').textContent =
+      mode === 'free'
+        ? 'Uses our servers — no API key needed.'
+        : 'Your API key is used directly from your browser.';
+    // Sync hidden input for background.js
     const aiModelInput = document.getElementById('aiModel');
-    const cards = document.querySelectorAll('.ai-option-card');
-
-    function selectModel(value) {
-      aiModelInput.value = value;
-      cards.forEach(c => c.classList.toggle('selected', c.dataset.value === value));
-      toggleApiKeyField(value);
+    if (mode === 'free') {
+      aiModelInput.value = 'free';
+    } else if (_currentProvider) {
+      aiModelInput.value = _currentProvider;
     }
+  }
 
-    cards.forEach(card => {
-      card.addEventListener('click', () => selectModel(card.dataset.value));
+  function applyProvider(provider, markActive) {
+    if (markActive) {
+      _currentProvider = provider;
+      document.getElementById('aiModel').value = provider;
+    }
+    // Highlight active provider card
+    document.querySelectorAll('.provider-btn').forEach(btn => {
+      btn.classList.toggle('active', markActive && btn.dataset.provider === provider);
+    });
+  }
+
+  function updateKeyStatus(provider, hasKey) {
+    const statusMap = { openai: 'statusOpenAI', gemini_api: 'statusGemini', anthropic: 'statusAnthropic' };
+    const el = document.getElementById(statusMap[provider]);
+    if (!el) return;
+    el.className = 'provider-key-status ' + (hasKey ? 'key-set' : 'no-key');
+  }
+
+  const PROVIDER_META = {
+    openai:     { title: 'OpenAI API Key',     hint: 'Get a free key at platform.openai.com → API Keys.',      storageKey: 'openaiKey'     },
+    gemini_api: { title: 'Google Gemini Key',  hint: 'Get a free key at aistudio.google.com → Get API key.',   storageKey: 'geminiKey'     },
+    anthropic:  { title: 'Anthropic API Key',  hint: 'Get a key at console.anthropic.com → API Keys.',         storageKey: 'anthropicKey'  }
+  };
+
+  function openKeyModal(provider) {
+    _pendingProvider = provider;
+    const meta = PROVIDER_META[provider];
+    document.getElementById('modalTitle').textContent = meta.title;
+    document.getElementById('modalHint').textContent  = meta.hint;
+    // Pre-fill if key already saved
+    chrome.storage.local.get([meta.storageKey], (data) => {
+      document.getElementById('modalApiKeyInput').value = data[meta.storageKey] || '';
+      document.getElementById('apiKeyModal').classList.remove('hidden');
+      document.getElementById('modalApiKeyInput').focus();
+    });
+  }
+
+  function closeKeyModal() {
+    document.getElementById('apiKeyModal').classList.add('hidden');
+    document.getElementById('modalApiKeyInput').value = '';
+    _pendingProvider = null;
+  }
+
+  function setupSettings() {
+    // Mode buttons
+    document.getElementById('modeFree').addEventListener('click', () => applyMode('free'));
+    document.getElementById('modeBYOK').addEventListener('click', () => applyMode('byok'));
+
+    // Provider buttons — open modal
+    document.querySelectorAll('.provider-btn').forEach(btn => {
+      btn.addEventListener('click', () => openKeyModal(btn.dataset.provider));
     });
 
-    // "Why own key?" toggle
-    document.getElementById('whyOwnKey')?.addEventListener('click', () => {
-      document.getElementById('whyOwnKeyText').classList.toggle('hidden');
+    // Modal: close
+    document.getElementById('modalClose').addEventListener('click',  closeKeyModal);
+    document.getElementById('modalCancel').addEventListener('click', closeKeyModal);
+    document.getElementById('apiKeyModal').addEventListener('click', (e) => {
+      if (e.target === document.getElementById('apiKeyModal')) closeKeyModal();
     });
 
-    document.getElementById('saveSettingsBtn').addEventListener('click', () => {
-      const aiModel       = aiModelInput.value;
-      const apiKey        = document.getElementById('apiKey').value.trim();
-      const groqApiKey    = document.getElementById('groqApiKey')?.value.trim() || '';
-      chrome.storage.local.set({ aiModel, apiKey, groqApiKey }, () => {
-        showConfirm('settingsSaved');
+    // Modal: save key
+    document.getElementById('modalSaveKey').addEventListener('click', () => {
+      if (!_pendingProvider) return;
+      const key  = document.getElementById('modalApiKeyInput').value.trim();
+      const meta = PROVIDER_META[_pendingProvider];
+      chrome.storage.local.set({ [meta.storageKey]: key }, () => {
+        updateKeyStatus(_pendingProvider, !!key);
+        applyProvider(_pendingProvider, true);
+        closeKeyModal();
       });
+    });
+
+    // Save Settings button — persist mode + derive aiModel + apiKey for background.js
+    document.getElementById('saveSettingsBtn').addEventListener('click', () => {
+      const updates = { aiMode: _currentMode };
+      if (_currentMode === 'free') {
+        updates.aiModel = 'free';
+        updates.apiKey  = '';
+      } else if (_currentProvider) {
+        updates.aiModel      = _currentProvider;
+        updates.byokProvider = _currentProvider;
+        const meta = PROVIDER_META[_currentProvider];
+        chrome.storage.local.get([meta.storageKey], (data) => {
+          chrome.storage.local.set({ ...updates, apiKey: data[meta.storageKey] || '' }, () => {
+            showConfirm('settingsSaved');
+          });
+        });
+        return;
+      }
+      chrome.storage.local.set(updates, () => showConfirm('settingsSaved'));
     });
 
     document.getElementById('clearHistoryBtn').addEventListener('click', () => {
@@ -251,22 +338,6 @@ document.addEventListener('DOMContentLoaded', () => {
         showConfirm('historyClearedMsg');
       });
     });
-  }
-
-  function toggleApiKeyField(model) {
-    const section     = document.getElementById('apiKeySection');
-    const label       = document.getElementById('apiKeyLabel');
-    const freeSection = document.getElementById('freeModelSection');
-
-    if (freeSection) freeSection.classList.toggle('hidden', model !== 'free');
-
-    if (model === 'free') {
-      section.classList.add('hidden');
-    } else {
-      section.classList.remove('hidden');
-      const labels = { openai: 'OpenAI API Key', gemini_api: 'Gemini API Key', anthropic: 'Anthropic API Key' };
-      label.textContent = labels[model] || 'API Key';
-    }
   }
 
   // ── Profile ────────────────────────────────────────────────────────────────
