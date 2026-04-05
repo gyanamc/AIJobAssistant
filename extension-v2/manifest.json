@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "AI Job Assistant",
-  "version": "2.0.4",
+  "version": "2.0.5",
   "description": "AI-powered job matcher for LinkedIn and Naukri. Auto-evaluates jobs against your resume. Free to use.",
   "permissions": [
     "storage",
@@ -16,7 +16,6 @@
     "https://api.openai.com/*",
     "https://api.anthropic.com/*",
     "https://generativelanguage.googleapis.com/*",
-    "https://api.groq.com/*",
     "https://*.railway.app/*"
   ],
   "action": {
