@@ -24,7 +24,7 @@
   // ── Loop control ──────────────────────────────────────────────────────────
   function startLoop() {
     if (scrapeTimer) return;
-    scrapeTimer = setInterval(safeTick, 4000);
+    scrapeTimer = setInterval(safeTick, 6000);
     extLog('LinkedIn loop started.');
   }
 
@@ -52,15 +52,12 @@
     if (!cards.length) { scrollList(); return; }
 
     // Pick the first card that hasn't been visually marked yet
-    // (green = match, dimmed = no match, grey = skipped)
-    // We use the outline style as a visual marker to avoid re-processing
     let card = null, jobId = null;
     for (const c of cards) {
       const id = c.getAttribute('data-job-id') || c.getAttribute('data-occludable-job-id');
       if (!id) continue;
-      // Skip cards we've already processed in this page session (visual marker)
+      // Only pick cards with NO outline — any outline means already processed/in-progress
       const outline = c.style.outline || '';
-      if (outline && outline !== '2px solid #448aff') continue; // already processed
       if (!outline) {
         card = c; jobId = id;
         break;
