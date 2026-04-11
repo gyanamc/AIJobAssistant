@@ -123,7 +123,29 @@ async def embed(text_input: str) -> List[float]:
             raise HTTPException(503, f"Embedding service error: {res.status_code}")
         return res.json()["embedding"]
 
-async def llm_reason(jd: str, candidate_summary: str, rank: int) -> str:
+async def groq_chat_raw(prompt: str, system: str = "", temperature: float = 0.3, max_tokens: int = 1000) -> str:
+    """Call Groq directly — used internally by resume parse and cover letter."""
+    if not GROQ_API_KEY:
+        raise HTTPException(503, "Groq service not configured.")
+    messages = []
+    if system:
+        messages.append({"role": "system", "content": system})
+    messages.append({"role": "user", "content": prompt})
+    try:
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            res = await client.post(
+                "https://api.groq.com/openai/v1/chat/completions",
+                headers={"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"},
+                json={"model": "llama-3.1-8b-instant", "messages": messages,
+                      "temperature": temperature, "max_tokens": max_tokens}
+            )
+        if res.status_code != 200:
+            raise HTTPException(503, f"Groq returned {res.status_code}")
+        return res.json()["choices"][0]["message"]["content"].strip()
+    except httpx.ConnectError:
+        raise HTTPException(503, "Groq service unavailable.")
+    except httpx.TimeoutException:
+        raise HTTPException(504, "Groq request timed out.")
     prompt = (f"You are a recruitment assistant. Explain in 2 sentences why this candidate is ranked #{rank} "
               f"for the following job.\n\nJob Description:\n{jd[:500]}\n\nCandidate Profile:\n{candidate_summary}\n\n"
               f"Be specific about matching skills and experience. Return only the explanation.")
@@ -411,7 +433,7 @@ async def parse_resume(file: UploadFile = File(...)):
     if not raw_text.strip():
         raise HTTPException(400, "Could not extract text from the file.")
 
-    # LLM structured extraction
+    # LLM structured extraction via Groq
     prompt = (
         "Extract structured information from the following resume text. "
         "Return ONLY valid JSON with these exact keys: "
@@ -421,23 +443,14 @@ async def parse_resume(file: UploadFile = File(...)):
         f"Resume:\n{raw_text[:3000]}"
     )
     try:
-        async with httpx.AsyncClient(timeout=60.0) as client:
-            res = await client.post(f"{OLLAMA_HOST}/api/chat", json={
-                "model": "llama3.2:1b",
-                "messages": [{"role": "user", "content": prompt}],
-                "options": {"temperature": 0.1},
-                "stream": False
-            })
-        if res.status_code != 200:
-            raise HTTPException(503, "Ollama service unavailable.")
-        llm_text = res.json().get("message", {}).get("content", "").strip()
-        # Strip markdown code fences if present
+        llm_text = await groq_chat_raw(
+            prompt=prompt,
+            system="You are a resume parser. Return only valid JSON, no markdown.",
+            temperature=0.1,
+            max_tokens=800
+        )
         llm_text = llm_text.replace("```json", "").replace("```", "").strip()
         parsed = json.loads(llm_text)
-    except httpx.ConnectError:
-        raise HTTPException(503, "Ollama service unavailable.")
-    except httpx.TimeoutException:
-        raise HTTPException(504, "Ollama request timed out.")
     except json.JSONDecodeError:
         raise HTTPException(502, "Could not parse LLM response as JSON.")
 
@@ -460,24 +473,10 @@ async def generate_cover_letter(req: CoverLetterRequest):
         f"Candidate Resume Summary:\n{req.resume_summary}\n\n"
         f"Return only the cover letter text, no subject line or headers."
     )
-    try:
-        async with httpx.AsyncClient(timeout=60.0) as client:
-            res = await client.post(f"{OLLAMA_HOST}/api/chat", json={
-                "model": "llama3.2:1b",
-                "messages": [{"role": "user", "content": prompt}],
-                "options": {"temperature": 0.5},
-                "stream": False
-            })
-        if res.status_code != 200:
-            raise HTTPException(503, "Ollama service unavailable.")
-        cover_letter = res.json().get("message", {}).get("content", "").strip()
-        if not cover_letter:
-            raise HTTPException(503, "Ollama returned empty response.")
-        return {"cover_letter": cover_letter}
-    except httpx.ConnectError:
-        raise HTTPException(503, "Ollama service unavailable.")
-    except httpx.TimeoutException:
-        raise HTTPException(504, "Ollama request timed out.")
+    cover_letter = await groq_chat_raw(prompt=prompt, temperature=0.5, max_tokens=800)
+    if not cover_letter:
+        raise HTTPException(503, "LLM returned empty response.")
+    return {"cover_letter": cover_letter}
 
 # ── PII Unmask ────────────────────────────────────────────────────────────────
 class UnmaskRequest(BaseModel):
