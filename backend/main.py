@@ -2,7 +2,7 @@ import os
 import json
 import hashlib
 import httpx
-from fastapi import FastAPI, HTTPException, status, Depends, Request
+from fastapi import FastAPI, HTTPException, status, Depends, Request, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
@@ -63,6 +63,28 @@ def init_db():
                 created_at TIMESTAMP DEFAULT NOW()
             )
         """))
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS job_listings (
+                id TEXT PRIMARY KEY,
+                title TEXT NOT NULL,
+                company TEXT NOT NULL,
+                location TEXT,
+                source TEXT NOT NULL,
+                description TEXT NOT NULL,
+                apply_url TEXT NOT NULL,
+                embedding vector(768),
+                scraped_at TIMESTAMP DEFAULT NOW(),
+                updated_at TIMESTAMP DEFAULT NOW()
+            )
+        """))
+        try:
+            conn.execute(text("""
+                CREATE INDEX IF NOT EXISTS idx_job_listings_embedding
+                ON job_listings USING ivfflat (embedding vector_cosine_ops)
+                WITH (lists = 100)
+            """))
+        except Exception as idx_err:
+            print(f"ivfflat index creation skipped: {idx_err}")
         conn.commit()
 
 try:
@@ -251,6 +273,30 @@ async def sync_profile(req: ProfileSyncRequest):
 
     return {"status": "synced", "candidate_hash": candidate_hash[:8] + "..."}
 
+# ── Job Feed Models ───────────────────────────────────────────────────────────
+class JobCardResponse(BaseModel):
+    id: str
+    title: str
+    company: str
+    location: str
+    source: str  # 'linkedin' | 'naukri'
+    description: str
+    excerpt: str  # description[:300]
+    match_score: float  # 0-100
+    apply_url: str
+
+class FeedResponse(BaseModel):
+    jobs: List[JobCardResponse]
+    total: int
+
+# ── Cover Letter Models ───────────────────────────────────────────────────────
+class CoverLetterRequest(BaseModel):
+    job_id: str
+    job_title: str
+    company: str
+    job_description: str
+    resume_summary: str
+
 # ── Recruiter Search ──────────────────────────────────────────────────────────
 class SearchRequest(BaseModel):
     jd: str
@@ -293,6 +339,145 @@ async def recruiter_search(req: SearchRequest, recruiter_id: Optional[str] = Dep
         })
 
     return {"results": results, "total": len(results)}
+
+# ── Job Feed ──────────────────────────────────────────────────────────────────
+@app.get("/api/v1/jobs/feed", response_model=FeedResponse)
+async def jobs_feed(
+    resume_summary: str,
+    exclude_ids: Optional[str] = None,
+    limit: int = 20
+):
+    embedding = await embed(resume_summary)
+    emb_str = "[" + ",".join(str(x) for x in embedding) + "]"
+
+    excluded = set(i.strip() for i in exclude_ids.split(",") if i.strip()) if exclude_ids else set()
+
+    with engine.connect() as conn:
+        rows = conn.execute(text("""
+            SELECT id, title, company, location, source, description, apply_url,
+                   1 - (embedding <=> :emb::vector) AS distance
+            FROM job_listings
+            ORDER BY embedding <=> :emb::vector
+            LIMIT :limit
+        """), {"emb": emb_str, "limit": limit + len(excluded)}).fetchall()
+
+    jobs = []
+    for row in rows:
+        if row.id in excluded:
+            continue
+        jobs.append(JobCardResponse(
+            id=row.id,
+            title=row.title,
+            company=row.company,
+            location=row.location or "",
+            source=row.source,
+            description=row.description,
+            excerpt=row.description[:300],
+            match_score=round((float(row.distance)) * 100, 1),
+            apply_url=row.apply_url,
+        ))
+        if len(jobs) >= limit:
+            break
+
+    return FeedResponse(jobs=jobs, total=len(jobs))
+
+# ── Resume Parse ──────────────────────────────────────────────────────────────
+MAX_RESUME_SIZE = 5 * 1024 * 1024  # 5 MB
+
+@app.post("/api/v1/resume/parse")
+async def parse_resume(file: UploadFile = File(...)):
+    # Validate content type
+    if file.content_type not in ("application/pdf", "text/plain"):
+        raise HTTPException(400, "Unsupported file type. Use PDF or .txt.")
+
+    content = await file.read()
+
+    # Validate size
+    if len(content) > MAX_RESUME_SIZE:
+        raise HTTPException(413, "File exceeds 5 MB limit.")
+
+    # Extract text
+    if file.content_type == "application/pdf":
+        try:
+            from pypdf import PdfReader
+            import io
+            reader = PdfReader(io.BytesIO(content))
+            raw_text = "\n".join(page.extract_text() or "" for page in reader.pages)
+        except Exception as e:
+            raise HTTPException(400, f"Could not read PDF: {str(e)}")
+    else:
+        raw_text = content.decode("utf-8", errors="ignore")
+
+    if not raw_text.strip():
+        raise HTTPException(400, "Could not extract text from the file.")
+
+    # LLM structured extraction
+    prompt = (
+        "Extract structured information from the following resume text. "
+        "Return ONLY valid JSON with these exact keys: "
+        '"name" (string), "email" (string), "phone" (string), '
+        '"skills" (array of strings), "experience_summary" (string, 2-3 sentences), '
+        '"target_roles" (array of strings inferred from experience).\n\n'
+        f"Resume:\n{raw_text[:3000]}"
+    )
+    try:
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            res = await client.post(f"{OLLAMA_HOST}/api/chat", json={
+                "model": "llama3.2:1b",
+                "messages": [{"role": "user", "content": prompt}],
+                "options": {"temperature": 0.1},
+                "stream": False
+            })
+        if res.status_code != 200:
+            raise HTTPException(503, "Ollama service unavailable.")
+        llm_text = res.json().get("message", {}).get("content", "").strip()
+        # Strip markdown code fences if present
+        llm_text = llm_text.replace("```json", "").replace("```", "").strip()
+        parsed = json.loads(llm_text)
+    except httpx.ConnectError:
+        raise HTTPException(503, "Ollama service unavailable.")
+    except httpx.TimeoutException:
+        raise HTTPException(504, "Ollama request timed out.")
+    except json.JSONDecodeError:
+        raise HTTPException(502, "Could not parse LLM response as JSON.")
+
+    return {
+        "name":               parsed.get("name", ""),
+        "email":              parsed.get("email", ""),
+        "phone":              parsed.get("phone", ""),
+        "skills":             parsed.get("skills", []),
+        "experience_summary": parsed.get("experience_summary", ""),
+        "target_roles":       parsed.get("target_roles", []),
+    }
+
+# ── Cover Letter ─────────────────────────────────────────────────────────────
+@app.post("/api/v1/jobs/cover-letter")
+async def generate_cover_letter(req: CoverLetterRequest):
+    prompt = (
+        f"Write a concise, professional cover letter (3 paragraphs) for the following job.\n\n"
+        f"Job Title: {req.job_title}\nCompany: {req.company}\n"
+        f"Job Description:\n{req.job_description[:1500]}\n\n"
+        f"Candidate Resume Summary:\n{req.resume_summary}\n\n"
+        f"Return only the cover letter text, no subject line or headers."
+    )
+    try:
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            res = await client.post(f"{OLLAMA_HOST}/api/chat", json={
+                "model": "llama3.2:1b",
+                "messages": [{"role": "user", "content": prompt}],
+                "options": {"temperature": 0.5},
+                "stream": False
+            })
+        if res.status_code != 200:
+            raise HTTPException(503, "Ollama service unavailable.")
+        cover_letter = res.json().get("message", {}).get("content", "").strip()
+        if not cover_letter:
+            raise HTTPException(503, "Ollama returned empty response.")
+        return {"cover_letter": cover_letter}
+    except httpx.ConnectError:
+        raise HTTPException(503, "Ollama service unavailable.")
+    except httpx.TimeoutException:
+        raise HTTPException(504, "Ollama request timed out.")
 
 # ── PII Unmask ────────────────────────────────────────────────────────────────
 class UnmaskRequest(BaseModel):
