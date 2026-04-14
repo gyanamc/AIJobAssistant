@@ -142,7 +142,7 @@ def run():
 
     # ── LinkedIn ──────────────────────────────────────────────────────────────
     print("\n[1/2] Starting LinkedIn profile scraper...")
-    linkedin_scraper = LinkedInProfileScraper(headless=True, max_profiles_per_run=MAX_LINKEDIN)
+    linkedin_scraper = LinkedInProfileScraper(headless=False, max_profiles_per_run=MAX_LINKEDIN)
     try:
         linkedin_profiles = linkedin_scraper.run()
         print(f"\nLinkedIn: scraped {len(linkedin_profiles)} profiles.")
@@ -156,7 +156,7 @@ def run():
 
     # ── Naukri ────────────────────────────────────────────────────────────────
     print("\n[2/2] Starting Naukri profile scraper...")
-    naukri_scraper = NaukriProfileScraper(headless=True, max_profiles_per_run=MAX_NAUKRI)
+    naukri_scraper = NaukriProfileScraper(headless=False, max_profiles_per_run=MAX_NAUKRI)
     try:
         naukri_profiles = naukri_scraper.run()
         print(f"\nNaukri: scraped {len(naukri_profiles)} profiles.")

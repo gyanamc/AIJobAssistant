@@ -128,7 +128,7 @@ class LinkedInProfileScraper:
         url = (
             f"https://www.linkedin.com/search/results/people/"
             f"?keywords={encoded_query}&origin=GLOBAL_SEARCH_HEADER"
-            f"&geoUrn=&location={encoded_loc}"
+            f"&location={encoded_loc}"
         )
         try:
             self.page.goto(url, wait_until='domcontentloaded', timeout=30000)
@@ -136,7 +136,7 @@ class LinkedInProfileScraper:
             print(f"Navigation error: {e}")
             return []
 
-        self.random_sleep(3, 7)
+        self.random_sleep(4, 8)
 
         if self.check_for_captcha():
             print("⚠️  CAPTCHA detected! Pausing for 5 minutes...")
@@ -145,15 +145,36 @@ class LinkedInProfileScraper:
 
         self.human_scroll()
 
+        # Debug: print current URL to confirm we're on the right page
+        print(f"  Current URL: {self.page.url[:80]}")
+
         profile_urls = []
         try:
-            cards = self.page.locator('a[href*="/in/"]').all()
-            for card in cards:
-                href = card.get_attribute('href') or ''
-                if '/in/' in href and '?' not in href.split('/in/')[1][:30]:
+            # Try multiple selector patterns LinkedIn uses
+            selectors = [
+                'a[href*="linkedin.com/in/"]',
+                'a[href*="/in/"]',
+                '.entity-result__title-text a',
+                '.app-aware-link[href*="/in/"]',
+            ]
+            seen = set()
+            for selector in selectors:
+                cards = self.page.locator(selector).all()
+                for card in cards:
+                    href = card.get_attribute('href') or ''
+                    if '/in/' not in href:
+                        continue
+                    # Clean the URL — remove query params
                     clean = href.split('?')[0].rstrip('/')
-                    if clean not in profile_urls:
+                    # Filter out non-profile links like /in/feed, /in/messaging
+                    parts = clean.split('/in/')
+                    if len(parts) < 2 or len(parts[1]) < 3:
+                        continue
+                    if clean not in seen:
+                        seen.add(clean)
                         profile_urls.append(clean)
+
+            print(f"  Found {len(profile_urls)} profile URLs via selectors.")
         except Exception as e:
             print(f"Error extracting profile URLs: {e}")
 

@@ -19,6 +19,13 @@ __pycache__/
 
 # Saved LinkedIn cookies (contains session tokens)
 data/linkedin_cookies.json
+data/naukri_cookies.json
+data/scraper_linkedin_cookies.json
+data/scraper_naukri_cookies.json
+
+# node_modules
+node_modules/
+job-swipe-app/node_modules/
 
 # SQLite database (runtime data)
 db/*.db
