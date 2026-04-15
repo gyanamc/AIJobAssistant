@@ -586,7 +586,36 @@ async def evaluate_job(req: EvaluateRequest):
     except httpx.TimeoutException:
         raise HTTPException(504, "Evaluation service timed out.")
 
-# ── Events Status ─────────────────────────────────────────────────────────────
+# ── Embedding Backfill ────────────────────────────────────────────────────────
+@app.post("/api/v1/admin/backfill-embeddings")
+async def backfill_embeddings():
+    """One-time endpoint to add embeddings to jobs that don't have them."""
+    with engine.connect() as conn:
+        rows = conn.execute(text(
+            "SELECT id, title, description FROM job_listings WHERE embedding IS NULL LIMIT 50"
+        )).fetchall()
+
+    if not rows:
+        return {"message": "No jobs need backfilling.", "count": 0}
+
+    updated = 0
+    for row in rows:
+        try:
+            text_input = f"{row.title} {row.description[:800]}"
+            embedding = await embed(text_input)
+            emb_str = "[" + ",".join(str(x) for x in embedding) + "]"
+            with engine.connect() as conn:
+                conn.execute(text(
+                    "UPDATE job_listings SET embedding = :emb::vector WHERE id = :id"
+                ), {"emb": emb_str, "id": row.id})
+                conn.commit()
+            updated += 1
+        except Exception as e:
+            print(f"Backfill error for {row.id}: {e}")
+
+    return {"message": f"Backfilled {updated} jobs.", "count": updated}
+
+
 @app.get("/api/v1/recruiter/events")
 async def get_events(recruiter_id: Optional[str] = Depends(get_recruiter_id)):
     if not recruiter_id:
