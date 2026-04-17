@@ -615,7 +615,22 @@ async def evaluate_job(req: EvaluateRequest):
         raise HTTPException(504, "Evaluation service timed out.")
 
 # ── Embedding Backfill ────────────────────────────────────────────────────────
-@app.post("/api/v1/admin/backfill-embeddings")
+@app.get("/api/v1/admin/db-status")
+async def db_status():
+    """Check database status for debugging."""
+    with engine.connect() as conn:
+        job_count = conn.execute(text("SELECT COUNT(*) FROM job_listings")).scalar()
+        with_embeddings = conn.execute(text("SELECT COUNT(*) FROM job_listings WHERE embedding IS NOT NULL")).scalar()
+        col_info = conn.execute(text("""
+            SELECT column_name, udt_name, character_maximum_length
+            FROM information_schema.columns
+            WHERE table_name = 'job_listings' AND column_name = 'embedding'
+        """)).fetchone()
+    return {
+        "total_jobs": job_count,
+        "jobs_with_embeddings": with_embeddings,
+        "embedding_column": str(col_info) if col_info else "not found"
+    }
 async def backfill_embeddings():
     """One-time endpoint to add embeddings to jobs that don't have them."""
     import random
