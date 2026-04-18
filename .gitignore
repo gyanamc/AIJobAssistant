@@ -27,6 +27,13 @@ data/scraper_naukri_cookies.json
 node_modules/
 job-swipe-app/node_modules/
 
+# Android build outputs — too large for GitHub
+job-swipe-app/android/app/build/
+job-swipe-app/android/.gradle/
+job-swipe-app/android/build/
+*.apk
+*.aab
+
 # SQLite database (runtime data)
 db/*.db
 
