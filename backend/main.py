@@ -286,7 +286,7 @@ async def sync_profile(req: ProfileSyncRequest):
             INSERT INTO candidate_profiles
                 (candidate_hash, role_title, skills, location, summary, name_enc, email_enc, phone_enc, embedding)
             VALUES
-                (:hash, :role, :skills, :location, :summary, :name, :email, :phone, :emb::vector)
+                (:hash, :role, :skills, :location, :summary, :name, :email, :phone, CAST(:emb AS vector))
             ON CONFLICT (candidate_hash) DO UPDATE SET
                 role_title = EXCLUDED.role_title,
                 skills     = EXCLUDED.skills,
@@ -300,6 +300,7 @@ async def sync_profile(req: ProfileSyncRequest):
         """), {
             "hash":     candidate_hash,
             "role":     req.targetRoles,
+
             "skills":   req.skills,
             "location": req.targetLocations,
             "summary":  req.resumeSummary[:1000],
@@ -353,9 +354,9 @@ async def recruiter_search(req: SearchRequest, recruiter_id: Optional[str] = Dep
     with engine.connect() as conn:
         rows = conn.execute(text("""
             SELECT id, candidate_hash, role_title, skills, location, summary,
-                   1 - (embedding <=> :emb::vector) AS score
+                   1 - (embedding <=> CAST(:emb AS vector)) AS score
             FROM candidate_profiles
-            ORDER BY embedding <=> :emb::vector
+            ORDER BY embedding <=> CAST(:emb AS vector)
             LIMIT 20
         """), {"emb": emb_str}).fetchall()
 
@@ -405,11 +406,12 @@ async def jobs_feed(
     with engine.connect() as conn:
         rows = conn.execute(text("""
             SELECT id, title, company, location, source, description, apply_url,
-                   1 - (embedding <=> :emb::vector) AS distance
+                   1 - (embedding <=> CAST(:emb AS vector)) AS distance
             FROM job_listings
-            ORDER BY embedding <=> :emb::vector
+            ORDER BY embedding <=> CAST(:emb AS vector)
             LIMIT :limit
         """), {"emb": emb_str, "limit": limit + len(excluded)}).fetchall()
+
 
     jobs = []
     for row in rows:
@@ -631,6 +633,8 @@ async def db_status():
         "jobs_with_embeddings": with_embeddings,
         "embedding_column": str(col_info) if col_info else "not found"
     }
+
+@app.get("/api/v1/admin/backfill-embeddings")
 async def backfill_embeddings():
     """One-time endpoint to add embeddings to jobs that don't have them."""
     import random
@@ -645,6 +649,7 @@ async def backfill_embeddings():
         return {"message": "No jobs need backfilling.", "count": 0}
 
     updated = 0
+
     for row in rows:
         try:
             # Try Ollama first
@@ -665,9 +670,10 @@ async def backfill_embeddings():
             emb_str = "[" + ",".join(str(x) for x in embedding) + "]"
             with engine.connect() as conn:
                 conn.execute(text(
-                    "UPDATE job_listings SET embedding = :emb::vector WHERE id = :id"
+                    "UPDATE job_listings SET embedding = CAST(:emb AS vector) WHERE id = :id"
                 ), {"emb": emb_str, "id": row.id})
                 conn.commit()
+
             updated += 1
         except Exception as e:
             print(f"Backfill error for {row.id}: {e}")
