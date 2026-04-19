@@ -388,17 +388,66 @@ async def jobs_feed(
 ):
     import random, math
 
-    # Try Ollama embedding, fall back to deterministic pseudo-embedding
-    try:
-        embedding = await embed(resume_summary)
-    except Exception:
-        seed_val = hash(resume_summary[:100])
-        rng = random.Random(seed_val)
-        raw = [rng.gauss(0, 1) for _ in range(768)]
-        magnitude = math.sqrt(sum(x * x for x in raw))
-        embedding = [x / magnitude for x in raw]
+    excluded = set(i.strip() for i in exclude_ids.split(",") if i.strip()) if exclude_ids else set()
 
-    emb_str = "[" + ",".join(str(x) for x in embedding) + "]"
+    # Check if any jobs have embeddings
+    with engine.connect() as conn:
+        emb_count = conn.execute(text(
+            "SELECT COUNT(*) FROM job_listings WHERE embedding IS NOT NULL"
+        )).scalar()
+
+    if emb_count > 0:
+        # Use vector similarity search
+        try:
+            embedding = await embed(resume_summary)
+        except Exception:
+            seed_val = hash(resume_summary[:100])
+            rng = random.Random(seed_val)
+            raw = [rng.gauss(0, 1) for _ in range(1536)]
+            magnitude = math.sqrt(sum(x * x for x in raw))
+            embedding = [x / magnitude for x in raw]
+
+        emb_str = "[" + ",".join(str(x) for x in embedding) + "]"
+
+        with engine.connect() as conn:
+            rows = conn.execute(text("""
+                SELECT id, title, company, location, source, description, apply_url,
+                       1 - (embedding <=> :emb::vector) AS distance
+                FROM job_listings
+                WHERE embedding IS NOT NULL
+                ORDER BY embedding <=> :emb::vector
+                LIMIT :limit
+            """), {"emb": emb_str, "limit": limit + len(excluded)}).fetchall()
+    else:
+        # No embeddings yet — return most recent jobs
+        with engine.connect() as conn:
+            rows = conn.execute(text("""
+                SELECT id, title, company, location, source, description, apply_url,
+                       0.5 AS distance
+                FROM job_listings
+                ORDER BY scraped_at DESC
+                LIMIT :limit
+            """), {"limit": limit + len(excluded)}).fetchall()
+
+    jobs = []
+    for row in rows:
+        if row.id in excluded:
+            continue
+        jobs.append(JobCardResponse(
+            id=row.id,
+            title=row.title,
+            company=row.company,
+            location=row.location or "",
+            source=row.source,
+            description=row.description,
+            excerpt=row.description[:300],
+            match_score=round((1 - float(row.distance)) * 100, 1),
+            apply_url=row.apply_url,
+        ))
+        if len(jobs) >= limit:
+            break
+
+    return FeedResponse(jobs=jobs, total=len(jobs))
 
     excluded = set(i.strip() for i in exclude_ids.split(",") if i.strip()) if exclude_ids else set()
 
