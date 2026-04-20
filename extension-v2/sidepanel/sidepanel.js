@@ -426,6 +426,68 @@ document.addEventListener('DOMContentLoaded', () => {
       });
     });
 
+    document.getElementById('saveApplyBtn').addEventListener('click', () => {
+      if (!currentJob) return;
+
+      const coverLetter = document.getElementById('coverLetterText').textContent;
+      if (!coverLetter || coverLetter.length < 10) {
+        addLog('No cover letter to save — generate one first.', 'warn');
+        return;
+      }
+
+      const applyUrl = currentJob.applyUrl || currentJob.url || '';
+
+      chrome.storage.local.get(['savedJobs'], (data) => {
+        const saved = data.savedJobs || [];
+
+        // Update existing entry or prepend new one
+        const existingIdx = saved.findIndex(j =>
+          (currentJob.id && j.id && j.id === String(currentJob.id)) ||
+          (applyUrl && j.url && j.url === applyUrl)
+        );
+
+        const entry = {
+          id:            String(currentJob.id  || ''),
+          title:         currentJob.title        || '',
+          company:       currentJob.company      || '',
+          location:      currentJob.location     || '',
+          jobType:       currentJob.jobType      || 'Full-time',
+          salary:        currentJob.salary       || '',
+          url:           currentJob.url          || '',
+          applyUrl:      applyUrl,
+          contactEmail:  currentJob.contactEmail || '',
+          score:         currentJob.evaluation?.score        || 0,
+          skillsScore:   currentJob.evaluation?.skillsScore  || 0,
+          reqsScore:     currentJob.evaluation?.reqsScore    || 0,
+          respScore:     currentJob.evaluation?.respScore    || 0,
+          matchedSkills: currentJob.evaluation?.matchedSkills || [],
+          missingSkills: currentJob.evaluation?.missingSkills || [],
+          reasoning:     currentJob.evaluation?.reasoning    || '',
+          coverLetter:   coverLetter,
+          savedAt:       new Date().toISOString()
+        };
+
+        if (existingIdx >= 0) {
+          saved[existingIdx] = entry;
+        } else {
+          saved.unshift(entry);
+          if (saved.length > 200) saved.pop();
+        }
+
+        chrome.storage.local.set({ savedJobs: saved }, () => {
+          addLog(`✅ Saved with cover letter: ${currentJob.title} at ${currentJob.company}`, 'success');
+          // Show inline confirmation
+          const confirm = document.getElementById('saveApplyConfirm');
+          confirm.classList.remove('hidden');
+          setTimeout(() => confirm.classList.add('hidden'), 2500);
+          // Open the job application page
+          if (applyUrl && applyUrl !== '#') {
+            chrome.tabs.create({ url: applyUrl });
+          }
+        });
+      });
+    });
+
     document.getElementById('clearLogsBtn').addEventListener('click', () => {
       chrome.storage.local.set({ sessionLogs: [] }, () => {
         document.getElementById('logList').innerHTML = '';

@@ -720,6 +720,26 @@ html, body {
 }
 .copy-btn:hover { border-color: var(--accent); color: var(--accent); }
 
+.cover-letter-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+  flex-wrap: wrap;
+}
+
+.save-apply-btn {
+  padding: 6px 16px;
+  background: var(--accent);
+  border: none;
+  border-radius: var(--radius-sm);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+.save-apply-btn:hover { opacity: 0.85; }
+
 /* Reasoning */
 .reasoning-text {
   font-size: 12px;
