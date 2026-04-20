@@ -278,36 +278,68 @@ async def sync_profile(req: ProfileSyncRequest):
     # Build searchable text
     profile_text = f"Role: {req.targetRoles}\nLocation: {req.targetLocations}\nSkills: {req.skills}\nSummary: {req.resumeSummary}"
 
-    embedding = await embed(profile_text)
-    embedding_str = "[" + ",".join(str(x) for x in embedding) + "]"
+    # Try to get embedding — non-fatal if unavailable
+    embedding_str = None
+    try:
+        embedding = await embed(profile_text)
+        embedding_str = "[" + ",".join(str(x) for x in embedding) + "]"
+    except Exception as e:
+        print(f"Profile sync: embedding skipped ({e})")
 
     with engine.connect() as conn:
-        conn.execute(text("""
-            INSERT INTO candidate_profiles
-                (candidate_hash, role_title, skills, location, summary, name_enc, email_enc, phone_enc, embedding)
-            VALUES
-                (:hash, :role, :skills, :location, :summary, :name, :email, :phone, :emb::vector)
-            ON CONFLICT (candidate_hash) DO UPDATE SET
-                role_title = EXCLUDED.role_title,
-                skills     = EXCLUDED.skills,
-                location   = EXCLUDED.location,
-                summary    = EXCLUDED.summary,
-                name_enc   = EXCLUDED.name_enc,
-                email_enc  = EXCLUDED.email_enc,
-                phone_enc  = EXCLUDED.phone_enc,
-                embedding  = EXCLUDED.embedding,
-                updated_at = NOW()
-        """), {
-            "hash":     candidate_hash,
-            "role":     req.targetRoles,
-            "skills":   req.skills,
-            "location": req.targetLocations,
-            "summary":  req.resumeSummary[:1000],
-            "name":     req.name,
-            "email":    req.email,
-            "phone":    req.phone,
-            "emb":      embedding_str
-        })
+        if embedding_str:
+            conn.execute(text("""
+                INSERT INTO candidate_profiles
+                    (candidate_hash, role_title, skills, location, summary, name_enc, email_enc, phone_enc, embedding)
+                VALUES
+                    (:hash, :role, :skills, :location, :summary, :name, :email, :phone, :emb::vector)
+                ON CONFLICT (candidate_hash) DO UPDATE SET
+                    role_title = EXCLUDED.role_title,
+                    skills     = EXCLUDED.skills,
+                    location   = EXCLUDED.location,
+                    summary    = EXCLUDED.summary,
+                    name_enc   = EXCLUDED.name_enc,
+                    email_enc  = EXCLUDED.email_enc,
+                    phone_enc  = EXCLUDED.phone_enc,
+                    embedding  = EXCLUDED.embedding,
+                    updated_at = NOW()
+            """), {
+                "hash":     candidate_hash,
+                "role":     req.targetRoles,
+                "skills":   req.skills,
+                "location": req.targetLocations,
+                "summary":  req.resumeSummary[:1000],
+                "name":     req.name,
+                "email":    req.email,
+                "phone":    req.phone,
+                "emb":      embedding_str
+            })
+        else:
+            # Save profile without embedding — still useful for recruiter search later
+            conn.execute(text("""
+                INSERT INTO candidate_profiles
+                    (candidate_hash, role_title, skills, location, summary, name_enc, email_enc, phone_enc)
+                VALUES
+                    (:hash, :role, :skills, :location, :summary, :name, :email, :phone)
+                ON CONFLICT (candidate_hash) DO UPDATE SET
+                    role_title = EXCLUDED.role_title,
+                    skills     = EXCLUDED.skills,
+                    location   = EXCLUDED.location,
+                    summary    = EXCLUDED.summary,
+                    name_enc   = EXCLUDED.name_enc,
+                    email_enc  = EXCLUDED.email_enc,
+                    phone_enc  = EXCLUDED.phone_enc,
+                    updated_at = NOW()
+            """), {
+                "hash":     candidate_hash,
+                "role":     req.targetRoles,
+                "skills":   req.skills,
+                "location": req.targetLocations,
+                "summary":  req.resumeSummary[:1000],
+                "name":     req.name,
+                "email":    req.email,
+                "phone":    req.phone,
+            })
         conn.commit()
 
     return {"status": "synced", "candidate_hash": candidate_hash[:8] + "..."}
