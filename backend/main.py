@@ -712,48 +712,46 @@ async def db_status():
         "jobs_with_embeddings": with_embeddings,
         "embedding_column": str(col_info) if col_info else "not found"
     }
-async def backfill_embeddings():
-    """One-time endpoint to add embeddings to jobs that don't have them."""
-    import random
-    import math
 
+@app.post("/api/v1/admin/backfill-embeddings")
+async def backfill_embeddings(batch_size: int = 50):
+    """Compute and store embeddings for all jobs that don't have one yet."""
     with engine.connect() as conn:
         rows = conn.execute(text(
-            "SELECT id, title, description FROM job_listings WHERE embedding IS NULL LIMIT 50"
-        )).fetchall()
+            "SELECT id, title, description FROM job_listings WHERE embedding IS NULL LIMIT :n"
+        ), {"n": batch_size}).fetchall()
 
     if not rows:
-        return {"message": "No jobs need backfilling.", "count": 0}
+        return {"message": "All jobs already have embeddings.", "count": 0}
 
     updated = 0
+    failed = 0
     for row in rows:
         try:
-            # Try Ollama first
-            embedding = None
-            try:
-                embedding = await embed(f"{row.title} {row.description[:800]}")
-            except Exception:
-                pass
-
-            # Fall back to deterministic pseudo-embedding based on text hash
-            if not embedding:
-                seed_val = hash(f"{row.title} {row.description[:200]}")
-                rng = random.Random(seed_val)
-                raw = [rng.gauss(0, 1) for _ in range(768)]
-                magnitude = math.sqrt(sum(x * x for x in raw))
-                embedding = [x / magnitude for x in raw]
-
+            embedding = await embed(f"{row.title} {row.description[:800]}")
             emb_str = "[" + ",".join(str(x) for x in embedding) + "]"
             with engine.connect() as conn:
                 conn.execute(text(
-                    "UPDATE job_listings SET embedding = :emb::vector WHERE id = :id"
+                    "UPDATE job_listings SET embedding = :emb::vector, updated_at = NOW() WHERE id = :id"
                 ), {"emb": emb_str, "id": row.id})
                 conn.commit()
             updated += 1
         except Exception as e:
             print(f"Backfill error for {row.id}: {e}")
+            failed += 1
 
-    return {"message": f"Backfilled {updated} jobs.", "count": updated}
+    # Check how many still remain
+    with engine.connect() as conn:
+        remaining = conn.execute(text(
+            "SELECT COUNT(*) FROM job_listings WHERE embedding IS NULL"
+        )).scalar()
+
+    return {
+        "message": f"Backfilled {updated} jobs in this batch.",
+        "updated": updated,
+        "failed": failed,
+        "remaining": remaining
+    }
 
 
 @app.get("/api/v1/recruiter/events")
