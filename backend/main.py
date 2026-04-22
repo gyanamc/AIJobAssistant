@@ -726,6 +726,7 @@ async def backfill_embeddings(batch_size: int = 50):
 
     updated = 0
     failed = 0
+    last_error = None
     for row in rows:
         try:
             embedding = await embed(f"{row.title} {row.description[:800]}")
@@ -737,6 +738,7 @@ async def backfill_embeddings(batch_size: int = 50):
                 conn.commit()
             updated += 1
         except Exception as e:
+            last_error = str(e)
             print(f"Backfill error for {row.id}: {e}")
             failed += 1
 
@@ -750,7 +752,9 @@ async def backfill_embeddings(batch_size: int = 50):
         "message": f"Backfilled {updated} jobs in this batch.",
         "updated": updated,
         "failed": failed,
-        "remaining": remaining
+        "remaining": remaining,
+        "last_error": last_error,
+        "openai_key_set": bool(OPENAI_API_KEY)
     }
 
 
