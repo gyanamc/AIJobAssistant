@@ -41,10 +41,22 @@ export const useJobStore = create<JobStore>((set, get) => ({
     if (isLoading) return;
     set({ isLoading: true, error: null });
     try {
-      const resumeSummary = await getItem<{ experience_summary: string }>(KEYS.RESUME_SUMMARY);
-      const summary = resumeSummary?.experience_summary ?? '';
+      const resumeSummary = await getItem<{
+        experience_summary: string;
+        skills: string[];
+        target_roles: string[];
+      }>(KEYS.RESUME_SUMMARY);
+
+      // Build a rich query string from all resume fields for better matching
+      const parts = [
+        resumeSummary?.experience_summary ?? '',
+        (resumeSummary?.target_roles ?? []).join(', '),
+        (resumeSummary?.skills ?? []).slice(0, 20).join(', '),
+      ].filter(Boolean);
+      const summary = parts.join('. ') || 'software engineer developer';
+
       const excludeIds = swipeHistory.map(r => r.job_id).join(',');
-      const data = await fetchJobFeed(summary, excludeIds || undefined);
+      const data = await fetchJobFeed(summary, excludeIds || undefined, 50);
 
       // Client-side dedup
       const historyIds = new Set(swipeHistory.map(r => r.job_id));
@@ -72,7 +84,7 @@ export const useJobStore = create<JobStore>((set, get) => ({
       const deck = state.deck.filter(j => j.id !== job.id);
       setItem(KEYS.SWIPE_HISTORY, history);
       // Auto-fetch when fewer than 3 cards remain
-      if (deck.length < 3) setTimeout(() => get().fetchFeed(), 0);
+      if (deck.length < 5) setTimeout(() => get().fetchFeed(), 0);
       return { deck, swipeHistory: history };
     });
   },
@@ -88,7 +100,7 @@ export const useJobStore = create<JobStore>((set, get) => ({
       const history = [...state.swipeHistory, record];
       const deck = state.deck.filter(j => j.id !== job.id);
       setItem(KEYS.SWIPE_HISTORY, history);
-      if (deck.length < 3) setTimeout(() => get().fetchFeed(), 0);
+      if (deck.length < 5) setTimeout(() => get().fetchFeed(), 0);
       return { deck, swipeHistory: history };
     });
   },

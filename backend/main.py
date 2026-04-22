@@ -416,7 +416,7 @@ async def recruiter_search(req: SearchRequest, recruiter_id: Optional[str] = Dep
 async def jobs_feed(
     resume_summary: str,
     exclude_ids: Optional[str] = None,
-    limit: int = 20
+    limit: int = 50
 ):
     import random, math
 
