@@ -733,7 +733,7 @@ async def backfill_embeddings(batch_size: int = 50):
             emb_str = "[" + ",".join(str(x) for x in embedding) + "]"
             with engine.connect() as conn:
                 conn.execute(text(
-                    "UPDATE job_listings SET embedding = :emb::vector, updated_at = NOW() WHERE id = :id"
+                    "UPDATE job_listings SET embedding = CAST(:emb AS vector), updated_at = NOW() WHERE id = :id"
                 ), {"emb": emb_str, "id": row.id})
                 conn.commit()
             updated += 1
