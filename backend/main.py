@@ -713,6 +713,13 @@ async def db_status():
         "embedding_column": str(col_info) if col_info else "not found"
     }
 
+@app.get("/api/v1/admin/job-count")
+async def job_count():
+    """Return the total number of job listings in the database."""
+    with engine.connect() as conn:
+        total = conn.execute(text("SELECT COUNT(*) FROM job_listings")).scalar()
+    return {"total_jobs": total}
+
 @app.post("/api/v1/admin/backfill-embeddings")
 async def backfill_embeddings(batch_size: int = 50):
     """Compute and store embeddings for all jobs that don't have one yet."""
