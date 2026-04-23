@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Image } from 'react-native';
 import MatchScoreBadge from './MatchScoreBadge';
 import type { JobCard as JobCardType } from '../types';
 
@@ -30,6 +30,11 @@ export default function JobCard({ job, onTap }: Props) {
       </View>
 
       <Text style={styles.excerpt} numberOfLines={4}>{job.excerpt}</Text>
+
+      <View style={styles.footer}>
+        <Image source={require('../assets/logo.png')} style={styles.brandingLogo} />
+        <Text style={styles.brandingText}>AntiGravity</Text>
+      </View>
     </TouchableOpacity>
   );
 }
@@ -77,5 +82,21 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#cbd5e1',
     lineHeight: 20,
+  },
+  footer: {
+    marginTop: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  brandingLogo: {
+    width: 20,
+    height: 20,
+    resizeMode: 'contain',
+  },
+  brandingText: {
+    fontSize: 12,
+    color: '#64748b',
+    fontWeight: '600',
   },
 });

@@ -1,7 +1,7 @@
 -- Merging decision tree log ---
 manifest
-ADDED from /Users/kumargyanam/Downloads/AIJobAssistant4Everyone/AIJobAssistant/job-swipe-app/android/app/src/main/AndroidManifest.xml:1:1-25:12
-MERGED from /Users/kumargyanam/Downloads/AIJobAssistant4Everyone/AIJobAssistant/job-swipe-app/android/app/src/main/AndroidManifest.xml:1:1-25:12
+ADDED from /Users/kumargyanam/Downloads/AIJobAssistant4Everyone/AIJobAssistant/job-swipe-app/android/app/src/main/AndroidManifest.xml:1:1-31:12
+MERGED from /Users/kumargyanam/Downloads/AIJobAssistant4Everyone/AIJobAssistant/job-swipe-app/android/app/src/main/AndroidManifest.xml:1:1-31:12
 INJECTED from /Users/kumargyanam/Downloads/AIJobAssistant4Everyone/AIJobAssistant/job-swipe-app/android/app/src/debug/AndroidManifest.xml:2:1-9:12
 INJECTED from /Users/kumargyanam/Downloads/AIJobAssistant4Everyone/AIJobAssistant/job-swipe-app/android/app/src/debug/AndroidManifest.xml:2:1-9:12
 INJECTED from /Users/kumargyanam/Downloads/AIJobAssistant4Everyone/AIJobAssistant/job-swipe-app/android/app/src/debug/AndroidManifest.xml:2:1-9:12
@@ -99,9 +99,9 @@ MERGED from [com.facebook.flipper:flipper:0.201.0] /Users/kumargyanam/.gradle/ca
 	android:name
 		ADDED from /Users/kumargyanam/Downloads/AIJobAssistant4Everyone/AIJobAssistant/job-swipe-app/android/app/src/main/AndroidManifest.xml:3:22-64
 application
-ADDED from /Users/kumargyanam/Downloads/AIJobAssistant4Everyone/AIJobAssistant/job-swipe-app/android/app/src/main/AndroidManifest.xml:5:5-24:19
-MERGED from /Users/kumargyanam/Downloads/AIJobAssistant4Everyone/AIJobAssistant/job-swipe-app/android/app/src/main/AndroidManifest.xml:5:5-24:19
-MERGED from /Users/kumargyanam/Downloads/AIJobAssistant4Everyone/AIJobAssistant/job-swipe-app/android/app/src/main/AndroidManifest.xml:5:5-24:19
+ADDED from /Users/kumargyanam/Downloads/AIJobAssistant4Everyone/AIJobAssistant/job-swipe-app/android/app/src/main/AndroidManifest.xml:5:5-30:19
+MERGED from /Users/kumargyanam/Downloads/AIJobAssistant4Everyone/AIJobAssistant/job-swipe-app/android/app/src/main/AndroidManifest.xml:5:5-30:19
+MERGED from /Users/kumargyanam/Downloads/AIJobAssistant4Everyone/AIJobAssistant/job-swipe-app/android/app/src/main/AndroidManifest.xml:5:5-30:19
 INJECTED from /Users/kumargyanam/Downloads/AIJobAssistant4Everyone/AIJobAssistant/job-swipe-app/android/app/src/debug/AndroidManifest.xml:5:5-8:50
 MERGED from [com.facebook.react:react-android:0.73.6] /Users/kumargyanam/.gradle/caches/transforms-3/e1231b5b187cb579b629117f9511a862/transformed/jetified-react-android-0.73.6-debug/AndroidManifest.xml:18:5-22:19
 MERGED from [com.facebook.react:react-android:0.73.6] /Users/kumargyanam/.gradle/caches/transforms-3/e1231b5b187cb579b629117f9511a862/transformed/jetified-react-android-0.73.6-debug/AndroidManifest.xml:18:5-22:19
@@ -152,7 +152,7 @@ MERGED from [com.facebook.soloader:soloader:0.10.5] /Users/kumargyanam/.gradle/c
 		ADDED from /Users/kumargyanam/Downloads/AIJobAssistant4Everyone/AIJobAssistant/job-swipe-app/android/app/src/main/AndroidManifest.xml:6:7-38
 		ADDED from /Users/kumargyanam/Downloads/AIJobAssistant4Everyone/AIJobAssistant/job-swipe-app/android/app/src/main/AndroidManifest.xml:6:7-38
 activity#com.jobswipeapp.MainActivity
-ADDED from /Users/kumargyanam/Downloads/AIJobAssistant4Everyone/AIJobAssistant/job-swipe-app/android/app/src/main/AndroidManifest.xml:12:7-23:18
+ADDED from /Users/kumargyanam/Downloads/AIJobAssistant4Everyone/AIJobAssistant/job-swipe-app/android/app/src/main/AndroidManifest.xml:12:7-29:18
 	android:label
 		ADDED from /Users/kumargyanam/Downloads/AIJobAssistant4Everyone/AIJobAssistant/job-swipe-app/android/app/src/main/AndroidManifest.xml:14:9-41
 	android:launchMode
@@ -175,6 +175,26 @@ category#android.intent.category.LAUNCHER
 ADDED from /Users/kumargyanam/Downloads/AIJobAssistant4Everyone/AIJobAssistant/job-swipe-app/android/app/src/main/AndroidManifest.xml:21:13-73
 	android:name
 		ADDED from /Users/kumargyanam/Downloads/AIJobAssistant4Everyone/AIJobAssistant/job-swipe-app/android/app/src/main/AndroidManifest.xml:21:23-70
+intent-filter#action:name:android.intent.action.VIEW+category:name:android.intent.category.BROWSABLE+category:name:android.intent.category.DEFAULT+data:host:auth+data:scheme:jobswipeapp
+ADDED from /Users/kumargyanam/Downloads/AIJobAssistant4Everyone/AIJobAssistant/job-swipe-app/android/app/src/main/AndroidManifest.xml:23:9-28:25
+action#android.intent.action.VIEW
+ADDED from /Users/kumargyanam/Downloads/AIJobAssistant4Everyone/AIJobAssistant/job-swipe-app/android/app/src/main/AndroidManifest.xml:24:13-65
+	android:name
+		ADDED from /Users/kumargyanam/Downloads/AIJobAssistant4Everyone/AIJobAssistant/job-swipe-app/android/app/src/main/AndroidManifest.xml:24:21-62
+category#android.intent.category.DEFAULT
+ADDED from /Users/kumargyanam/Downloads/AIJobAssistant4Everyone/AIJobAssistant/job-swipe-app/android/app/src/main/AndroidManifest.xml:25:13-72
+	android:name
+		ADDED from /Users/kumargyanam/Downloads/AIJobAssistant4Everyone/AIJobAssistant/job-swipe-app/android/app/src/main/AndroidManifest.xml:25:23-69
+category#android.intent.category.BROWSABLE
+ADDED from /Users/kumargyanam/Downloads/AIJobAssistant4Everyone/AIJobAssistant/job-swipe-app/android/app/src/main/AndroidManifest.xml:26:13-74
+	android:name
+		ADDED from /Users/kumargyanam/Downloads/AIJobAssistant4Everyone/AIJobAssistant/job-swipe-app/android/app/src/main/AndroidManifest.xml:26:23-71
+data
+ADDED from /Users/kumargyanam/Downloads/AIJobAssistant4Everyone/AIJobAssistant/job-swipe-app/android/app/src/main/AndroidManifest.xml:27:13-70
+	android:host
+		ADDED from /Users/kumargyanam/Downloads/AIJobAssistant4Everyone/AIJobAssistant/job-swipe-app/android/app/src/main/AndroidManifest.xml:27:48-67
+	android:scheme
+		ADDED from /Users/kumargyanam/Downloads/AIJobAssistant4Everyone/AIJobAssistant/job-swipe-app/android/app/src/main/AndroidManifest.xml:27:19-47
 uses-sdk
 INJECTED from /Users/kumargyanam/Downloads/AIJobAssistant4Everyone/AIJobAssistant/job-swipe-app/android/app/src/debug/AndroidManifest.xml reason: use-sdk injection requested
 INJECTED from /Users/kumargyanam/Downloads/AIJobAssistant4Everyone/AIJobAssistant/job-swipe-app/android/app/src/debug/AndroidManifest.xml

@@ -75,13 +75,12 @@ def is_valid_job(job: JobRecord) -> bool:
         return False
     if not job.company or job.company in ("Unknown", ""):
         return False
-    if not job.description or len(job.description) < 100:
-        return False
     if not job.apply_url or not job.apply_url.startswith("http"):
         return False
     spam = ["test", "dummy", "sample", "xxx", "asdf"]
     if any(kw in job.title.lower() for kw in spam):
         return False
+    # Accept jobs even with short/missing descriptions
     return True
 
 # ── DB ────────────────────────────────────────────────────────────────────────
@@ -144,6 +143,10 @@ def get_embedding(text_input: str) -> list | None:
 def process_and_insert(job: JobRecord, dry_run: bool) -> bool:
     """Validate, embed, and insert a single job. Returns True if inserted."""
     stats["scraped"] += 1
+
+    # Build fallback description if missing
+    if not job.description or len(job.description) < 50:
+        job.description = f"{job.title} position at {job.company}. Location: {job.location}."
 
     if not is_valid_job(job):
         stats["invalid"] += 1
@@ -276,25 +279,42 @@ def scrape_linkedin(days: int, existing_ids: set, dry_run: bool):
                         if not title:
                             continue
 
-                        # Fetch description
+                        # Click card to load description in right panel (no page navigation)
                         desc = ""
                         try:
-                            page.goto(apply_url, wait_until='domcontentloaded', timeout=20000)
-                            human_delay(1.5, 3)
-                            try:
-                                btn = page.locator('button.jobs-description__footer-button')
-                                if btn.count() > 0 and btn.first.is_visible():
-                                    btn.first.click()
-                                    human_delay(0.5, 1)
-                            except Exception:
-                                pass
-                            for sel in ['.jobs-description__content', '#job-details', '.description__text']:
+                            card.click()
+                            human_delay(2, 3)
+                            # Try right panel selectors first
+                            for sel in [
+                                '.jobs-search__job-details .jobs-description__content',
+                                '.jobs-description__content',
+                                '.jobs-box__html-content',
+                                '#job-details',
+                                '.description__text',
+                                '[class*="job-details"]',
+                            ]:
                                 el = page.locator(sel)
                                 if el.count() > 0:
                                     t = el.first.inner_text().strip()
                                     if len(t) > 100:
                                         desc = clean_text(t)
                                         break
+                            # If still empty, try expanding "See more"
+                            if not desc:
+                                try:
+                                    see_more = page.locator('button[aria-label*="more"], button.jobs-description__footer-button')
+                                    if see_more.count() > 0 and see_more.first.is_visible():
+                                        see_more.first.click()
+                                        human_delay(0.5, 1)
+                                        for sel in ['.jobs-description__content', '#job-details']:
+                                            el = page.locator(sel)
+                                            if el.count() > 0:
+                                                t = el.first.inner_text().strip()
+                                                if len(t) > 100:
+                                                    desc = clean_text(t)
+                                                    break
+                                except Exception:
+                                    pass
                         except Exception:
                             pass
 
@@ -418,18 +438,35 @@ def scrape_naukri(days: int, existing_ids: set, dry_run: bool):
                         company    = company_el.first.inner_text().strip() if company_el.count() > 0 else "Unknown"
                         loc_text   = loc_el.first.inner_text().strip() if loc_el.count() > 0 else location
 
-                        # Fetch description
+                        # Fetch description — navigate to job page
                         desc = ""
                         try:
-                            page.goto(apply_url, wait_until='domcontentloaded', timeout=20000)
-                            human_delay(1.5, 3)
-                            for sel in ['.job-desc', '.dang-inner-html', '#jobDescription']:
+                            page.goto(apply_url, wait_until='domcontentloaded', timeout=25000)
+                            human_delay(2, 3)
+                            # Try multiple selectors — Naukri changes these frequently
+                            for sel in [
+                                '.styles_JDC__dang-inner-html__h0K4t',
+                                '.job-desc',
+                                '.dang-inner-html',
+                                '#jobDescription',
+                                '.jobDescription',
+                                '[class*="job-desc"]',
+                                '[class*="JDC"]',
+                                'section.styles_job-desc-container',
+                            ]:
                                 el = page.locator(sel)
                                 if el.count() > 0:
                                     t = el.first.inner_text().strip()
-                                    if len(t) > 100:
+                                    if len(t) > 50:
                                         desc = clean_text(t)
                                         break
+                            # Fallback: grab any large text block on the page
+                            if not desc:
+                                all_text = page.locator('body').inner_text()
+                                # Extract middle section which usually has the description
+                                lines = [l.strip() for l in all_text.split('\n') if len(l.strip()) > 30]
+                                if lines:
+                                    desc = clean_text(' '.join(lines[5:25]))
                         except Exception:
                             pass
 

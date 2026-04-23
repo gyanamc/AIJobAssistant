@@ -13,10 +13,12 @@ import Animated, {
   runOnJS,
   interpolate,
   Extrapolate,
+  interpolateColor,
+  SharedValue,
 } from 'react-native-reanimated';
 
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
-const SWIPE_THRESHOLD = SCREEN_WIDTH * 0.3;
+const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
+const SWIPE_THRESHOLD = SCREEN_WIDTH * 0.35;
 
 interface Props<T> {
   cards: T[];
@@ -34,6 +36,7 @@ function SwipeCard<T>({
   onSwipedRight,
   onSwipedLeft,
   disabled,
+  activeTranslateX,
 }: {
   card: T;
   index: number;
@@ -42,6 +45,7 @@ function SwipeCard<T>({
   onSwipedRight: (index: number) => void;
   onSwipedLeft: (index: number) => void;
   disabled?: boolean;
+  activeTranslateX: SharedValue<number>;
 }) {
   const translateX = useSharedValue(0);
   const translateY = useSharedValue(0);
@@ -51,18 +55,22 @@ function SwipeCard<T>({
       if (!isTop || disabled) return;
       translateX.value = event.translationX;
       translateY.value = event.translationY * 0.2;
+      activeTranslateX.value = event.translationX;
     },
     onEnd: (event) => {
       if (!isTop || disabled) return;
       if (event.translationX > SWIPE_THRESHOLD) {
         translateX.value = withTiming(SCREEN_WIDTH * 1.5, { duration: 250 });
+        activeTranslateX.value = withTiming(0, { duration: 250 });
         runOnJS(onSwipedRight)(index);
       } else if (event.translationX < -SWIPE_THRESHOLD) {
         translateX.value = withTiming(-SCREEN_WIDTH * 1.5, { duration: 250 });
+        activeTranslateX.value = withTiming(0, { duration: 250 });
         runOnJS(onSwipedLeft)(index);
       } else {
         translateX.value = withSpring(0);
         translateY.value = withSpring(0);
+        activeTranslateX.value = withSpring(0);
       }
     },
   });
@@ -93,7 +101,7 @@ function SwipeCard<T>({
 
   const scale = useAnimatedStyle(() => ({
     transform: [{ scale: isTop ? 1 : 0.95 }],
-    opacity: isTop ? 1 : 0.7,
+    opacity: isTop ? 1 : 0,
   }));
 
   return (
@@ -120,25 +128,47 @@ export default function SwipeDeck<T>({
   onSwipedLeft,
   disabled,
 }: Props<T>) {
+  // Shared state connecting the active swipe translation to the screen background
+  const activeTranslateX = useSharedValue(0);
+
+  const backgroundStyle = useAnimatedStyle(() => {
+    return {
+      backgroundColor: interpolateColor(
+        activeTranslateX.value,
+        [-SWIPE_THRESHOLD, 0, SWIPE_THRESHOLD],
+        ['rgba(239, 68, 68, 0.3)', 'transparent', 'rgba(34, 197, 94, 0.3)']
+      ),
+    };
+  });
+
   return (
-    <View style={styles.deck}>
-      {cards.slice(0, 3).map((card, i) => (
-        <SwipeCard
-          key={i}
-          card={card}
-          index={i}
-          isTop={i === 0}
-          renderCard={renderCard}
-          onSwipedRight={onSwipedRight}
-          onSwipedLeft={onSwipedLeft}
-          disabled={disabled}
-        />
-      )).reverse()}
+    <View style={styles.deckWrapper}>
+      <Animated.View pointerEvents="none" style={[styles.fullScreenBackground, backgroundStyle]} />
+      <View style={styles.deck}>
+        {cards.slice(0, 3).map((card, i) => (
+          <SwipeCard
+            key={i}
+            card={card}
+            index={i}
+            isTop={i === 0}
+            renderCard={renderCard}
+            onSwipedRight={onSwipedRight}
+            onSwipedLeft={onSwipedLeft}
+            disabled={disabled}
+            activeTranslateX={activeTranslateX}
+          />
+        )).reverse()}
+      </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
+  deckWrapper: { flex: 1, position: 'relative' },
+  fullScreenBackground: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: -1,
+  },
   deck: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   cardContainer: { position: 'absolute', width: SCREEN_WIDTH - 32 },
   overlay: { position: 'absolute', top: 20, zIndex: 10, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8, borderWidth: 3 },

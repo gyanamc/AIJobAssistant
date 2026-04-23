@@ -37,7 +37,7 @@
 24-->[androidx.core:core:1.9.0] /Users/kumargyanam/.gradle/caches/transforms-3/13659b94c66de92d98d7f8af61234b95/transformed/core-1.9.0/AndroidManifest.xml:26:22-94
 25
 26    <application
-26-->/Users/kumargyanam/Downloads/AIJobAssistant4Everyone/AIJobAssistant/job-swipe-app/android/app/src/main/AndroidManifest.xml:5:5-24:19
+26-->/Users/kumargyanam/Downloads/AIJobAssistant4Everyone/AIJobAssistant/job-swipe-app/android/app/src/main/AndroidManifest.xml:5:5-30:19
 27        android:name="com.jobswipeapp.MainApplication"
 27-->/Users/kumargyanam/Downloads/AIJobAssistant4Everyone/AIJobAssistant/job-swipe-app/android/app/src/main/AndroidManifest.xml:6:7-38
 28        android:allowBackup="false"
@@ -57,7 +57,7 @@
 36        android:usesCleartextTraffic="true" >
 36-->/Users/kumargyanam/Downloads/AIJobAssistant4Everyone/AIJobAssistant/job-swipe-app/android/app/src/debug/AndroidManifest.xml:6:9-44
 37        <activity
-37-->/Users/kumargyanam/Downloads/AIJobAssistant4Everyone/AIJobAssistant/job-swipe-app/android/app/src/main/AndroidManifest.xml:12:7-23:18
+37-->/Users/kumargyanam/Downloads/AIJobAssistant4Everyone/AIJobAssistant/job-swipe-app/android/app/src/main/AndroidManifest.xml:12:7-29:18
 38            android:name="com.jobswipeapp.MainActivity"
 38-->/Users/kumargyanam/Downloads/AIJobAssistant4Everyone/AIJobAssistant/job-swipe-app/android/app/src/main/AndroidManifest.xml:13:9-37
 39            android:configChanges="keyboard|keyboardHidden|orientation|screenLayout|screenSize|smallestScreenSize|uiMode"
@@ -80,42 +80,62 @@
 47-->/Users/kumargyanam/Downloads/AIJobAssistant4Everyone/AIJobAssistant/job-swipe-app/android/app/src/main/AndroidManifest.xml:21:13-73
 47-->/Users/kumargyanam/Downloads/AIJobAssistant4Everyone/AIJobAssistant/job-swipe-app/android/app/src/main/AndroidManifest.xml:21:23-70
 48            </intent-filter>
-49        </activity>
-50        <activity
-50-->[com.facebook.react:react-android:0.73.6] /Users/kumargyanam/.gradle/caches/transforms-3/e1231b5b187cb579b629117f9511a862/transformed/jetified-react-android-0.73.6-debug/AndroidManifest.xml:19:9-21:40
-51            android:name="com.facebook.react.devsupport.DevSettingsActivity"
-51-->[com.facebook.react:react-android:0.73.6] /Users/kumargyanam/.gradle/caches/transforms-3/e1231b5b187cb579b629117f9511a862/transformed/jetified-react-android-0.73.6-debug/AndroidManifest.xml:20:13-77
-52            android:exported="false" />
-52-->[com.facebook.react:react-android:0.73.6] /Users/kumargyanam/.gradle/caches/transforms-3/e1231b5b187cb579b629117f9511a862/transformed/jetified-react-android-0.73.6-debug/AndroidManifest.xml:21:13-37
-53
-54        <provider
-54-->[androidx.emoji2:emoji2:1.2.0] /Users/kumargyanam/.gradle/caches/transforms-3/faa3592d2fc203d6c74b9a5f601058a1/transformed/jetified-emoji2-1.2.0/AndroidManifest.xml:24:9-32:20
-55            android:name="androidx.startup.InitializationProvider"
-55-->[androidx.emoji2:emoji2:1.2.0] /Users/kumargyanam/.gradle/caches/transforms-3/faa3592d2fc203d6c74b9a5f601058a1/transformed/jetified-emoji2-1.2.0/AndroidManifest.xml:25:13-67
-56            android:authorities="com.jobswipeapp.androidx-startup"
-56-->[androidx.emoji2:emoji2:1.2.0] /Users/kumargyanam/.gradle/caches/transforms-3/faa3592d2fc203d6c74b9a5f601058a1/transformed/jetified-emoji2-1.2.0/AndroidManifest.xml:26:13-68
-57            android:exported="false" >
-57-->[androidx.emoji2:emoji2:1.2.0] /Users/kumargyanam/.gradle/caches/transforms-3/faa3592d2fc203d6c74b9a5f601058a1/transformed/jetified-emoji2-1.2.0/AndroidManifest.xml:27:13-37
-58            <meta-data
-58-->[androidx.emoji2:emoji2:1.2.0] /Users/kumargyanam/.gradle/caches/transforms-3/faa3592d2fc203d6c74b9a5f601058a1/transformed/jetified-emoji2-1.2.0/AndroidManifest.xml:29:13-31:52
-59                android:name="androidx.emoji2.text.EmojiCompatInitializer"
-59-->[androidx.emoji2:emoji2:1.2.0] /Users/kumargyanam/.gradle/caches/transforms-3/faa3592d2fc203d6c74b9a5f601058a1/transformed/jetified-emoji2-1.2.0/AndroidManifest.xml:30:17-75
-60                android:value="androidx.startup" />
-60-->[androidx.emoji2:emoji2:1.2.0] /Users/kumargyanam/.gradle/caches/transforms-3/faa3592d2fc203d6c74b9a5f601058a1/transformed/jetified-emoji2-1.2.0/AndroidManifest.xml:31:17-49
-61            <meta-data
-61-->[androidx.lifecycle:lifecycle-process:2.4.1] /Users/kumargyanam/.gradle/caches/transforms-3/71b91ea8216105cda74b0317da307340/transformed/jetified-lifecycle-process-2.4.1/AndroidManifest.xml:31:13-33:52
-62                android:name="androidx.lifecycle.ProcessLifecycleInitializer"
-62-->[androidx.lifecycle:lifecycle-process:2.4.1] /Users/kumargyanam/.gradle/caches/transforms-3/71b91ea8216105cda74b0317da307340/transformed/jetified-lifecycle-process-2.4.1/AndroidManifest.xml:32:17-78
-63                android:value="androidx.startup" />
-63-->[androidx.lifecycle:lifecycle-process:2.4.1] /Users/kumargyanam/.gradle/caches/transforms-3/71b91ea8216105cda74b0317da307340/transformed/jetified-lifecycle-process-2.4.1/AndroidManifest.xml:33:17-49
-64        </provider>
-65
-66        <meta-data
-66-->[com.facebook.soloader:soloader:0.10.5] /Users/kumargyanam/.gradle/caches/transforms-3/03d018e18e7118763cc731de8f689ba0/transformed/jetified-soloader-0.10.5/AndroidManifest.xml:12:9-14:37
-67            android:name="com.facebook.soloader.enabled"
-67-->[com.facebook.soloader:soloader:0.10.5] /Users/kumargyanam/.gradle/caches/transforms-3/03d018e18e7118763cc731de8f689ba0/transformed/jetified-soloader-0.10.5/AndroidManifest.xml:13:13-57
-68            android:value="false" />
-68-->[com.facebook.soloader:soloader:0.10.5] /Users/kumargyanam/.gradle/caches/transforms-3/03d018e18e7118763cc731de8f689ba0/transformed/jetified-soloader-0.10.5/AndroidManifest.xml:14:13-34
-69    </application>
-70
-71</manifest>
+49            <intent-filter>
+49-->/Users/kumargyanam/Downloads/AIJobAssistant4Everyone/AIJobAssistant/job-swipe-app/android/app/src/main/AndroidManifest.xml:23:9-28:25
+50                <action android:name="android.intent.action.VIEW" />
+50-->/Users/kumargyanam/Downloads/AIJobAssistant4Everyone/AIJobAssistant/job-swipe-app/android/app/src/main/AndroidManifest.xml:24:13-65
+50-->/Users/kumargyanam/Downloads/AIJobAssistant4Everyone/AIJobAssistant/job-swipe-app/android/app/src/main/AndroidManifest.xml:24:21-62
+51
+52                <category android:name="android.intent.category.DEFAULT" />
+52-->/Users/kumargyanam/Downloads/AIJobAssistant4Everyone/AIJobAssistant/job-swipe-app/android/app/src/main/AndroidManifest.xml:25:13-72
+52-->/Users/kumargyanam/Downloads/AIJobAssistant4Everyone/AIJobAssistant/job-swipe-app/android/app/src/main/AndroidManifest.xml:25:23-69
+53                <category android:name="android.intent.category.BROWSABLE" />
+53-->/Users/kumargyanam/Downloads/AIJobAssistant4Everyone/AIJobAssistant/job-swipe-app/android/app/src/main/AndroidManifest.xml:26:13-74
+53-->/Users/kumargyanam/Downloads/AIJobAssistant4Everyone/AIJobAssistant/job-swipe-app/android/app/src/main/AndroidManifest.xml:26:23-71
+54
+55                <data
+55-->/Users/kumargyanam/Downloads/AIJobAssistant4Everyone/AIJobAssistant/job-swipe-app/android/app/src/main/AndroidManifest.xml:27:13-70
+56                    android:host="auth"
+56-->/Users/kumargyanam/Downloads/AIJobAssistant4Everyone/AIJobAssistant/job-swipe-app/android/app/src/main/AndroidManifest.xml:27:48-67
+57                    android:scheme="jobswipeapp" />
+57-->/Users/kumargyanam/Downloads/AIJobAssistant4Everyone/AIJobAssistant/job-swipe-app/android/app/src/main/AndroidManifest.xml:27:19-47
+58            </intent-filter>
+59        </activity>
+60        <activity
+60-->[com.facebook.react:react-android:0.73.6] /Users/kumargyanam/.gradle/caches/transforms-3/e1231b5b187cb579b629117f9511a862/transformed/jetified-react-android-0.73.6-debug/AndroidManifest.xml:19:9-21:40
+61            android:name="com.facebook.react.devsupport.DevSettingsActivity"
+61-->[com.facebook.react:react-android:0.73.6] /Users/kumargyanam/.gradle/caches/transforms-3/e1231b5b187cb579b629117f9511a862/transformed/jetified-react-android-0.73.6-debug/AndroidManifest.xml:20:13-77
+62            android:exported="false" />
+62-->[com.facebook.react:react-android:0.73.6] /Users/kumargyanam/.gradle/caches/transforms-3/e1231b5b187cb579b629117f9511a862/transformed/jetified-react-android-0.73.6-debug/AndroidManifest.xml:21:13-37
+63
+64        <provider
+64-->[androidx.emoji2:emoji2:1.2.0] /Users/kumargyanam/.gradle/caches/transforms-3/faa3592d2fc203d6c74b9a5f601058a1/transformed/jetified-emoji2-1.2.0/AndroidManifest.xml:24:9-32:20
+65            android:name="androidx.startup.InitializationProvider"
+65-->[androidx.emoji2:emoji2:1.2.0] /Users/kumargyanam/.gradle/caches/transforms-3/faa3592d2fc203d6c74b9a5f601058a1/transformed/jetified-emoji2-1.2.0/AndroidManifest.xml:25:13-67
+66            android:authorities="com.jobswipeapp.androidx-startup"
+66-->[androidx.emoji2:emoji2:1.2.0] /Users/kumargyanam/.gradle/caches/transforms-3/faa3592d2fc203d6c74b9a5f601058a1/transformed/jetified-emoji2-1.2.0/AndroidManifest.xml:26:13-68
+67            android:exported="false" >
+67-->[androidx.emoji2:emoji2:1.2.0] /Users/kumargyanam/.gradle/caches/transforms-3/faa3592d2fc203d6c74b9a5f601058a1/transformed/jetified-emoji2-1.2.0/AndroidManifest.xml:27:13-37
+68            <meta-data
+68-->[androidx.emoji2:emoji2:1.2.0] /Users/kumargyanam/.gradle/caches/transforms-3/faa3592d2fc203d6c74b9a5f601058a1/transformed/jetified-emoji2-1.2.0/AndroidManifest.xml:29:13-31:52
+69                android:name="androidx.emoji2.text.EmojiCompatInitializer"
+69-->[androidx.emoji2:emoji2:1.2.0] /Users/kumargyanam/.gradle/caches/transforms-3/faa3592d2fc203d6c74b9a5f601058a1/transformed/jetified-emoji2-1.2.0/AndroidManifest.xml:30:17-75
+70                android:value="androidx.startup" />
+70-->[androidx.emoji2:emoji2:1.2.0] /Users/kumargyanam/.gradle/caches/transforms-3/faa3592d2fc203d6c74b9a5f601058a1/transformed/jetified-emoji2-1.2.0/AndroidManifest.xml:31:17-49
+71            <meta-data
+71-->[androidx.lifecycle:lifecycle-process:2.4.1] /Users/kumargyanam/.gradle/caches/transforms-3/71b91ea8216105cda74b0317da307340/transformed/jetified-lifecycle-process-2.4.1/AndroidManifest.xml:31:13-33:52
+72                android:name="androidx.lifecycle.ProcessLifecycleInitializer"
+72-->[androidx.lifecycle:lifecycle-process:2.4.1] /Users/kumargyanam/.gradle/caches/transforms-3/71b91ea8216105cda74b0317da307340/transformed/jetified-lifecycle-process-2.4.1/AndroidManifest.xml:32:17-78
+73                android:value="androidx.startup" />
+73-->[androidx.lifecycle:lifecycle-process:2.4.1] /Users/kumargyanam/.gradle/caches/transforms-3/71b91ea8216105cda74b0317da307340/transformed/jetified-lifecycle-process-2.4.1/AndroidManifest.xml:33:17-49
+74        </provider>
+75
+76        <meta-data
+76-->[com.facebook.soloader:soloader:0.10.5] /Users/kumargyanam/.gradle/caches/transforms-3/03d018e18e7118763cc731de8f689ba0/transformed/jetified-soloader-0.10.5/AndroidManifest.xml:12:9-14:37
+77            android:name="com.facebook.soloader.enabled"
+77-->[com.facebook.soloader:soloader:0.10.5] /Users/kumargyanam/.gradle/caches/transforms-3/03d018e18e7118763cc731de8f689ba0/transformed/jetified-soloader-0.10.5/AndroidManifest.xml:13:13-57
+78            android:value="false" />
+78-->[com.facebook.soloader:soloader:0.10.5] /Users/kumargyanam/.gradle/caches/transforms-3/03d018e18e7118763cc731de8f689ba0/transformed/jetified-soloader-0.10.5/AndroidManifest.xml:14:13-34
+79    </application>
+80
+81</manifest>
