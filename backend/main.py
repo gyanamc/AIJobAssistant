@@ -386,6 +386,76 @@ async def evaluate_job(req: EvaluateRequest):
     except httpx.TimeoutException:
         raise HTTPException(504, "Evaluation service timed out.")
 
+# ── Embedding Backfill ────────────────────────────────────────────────────────
+@app.get("/api/v1/admin/db-status")
+async def db_status():
+    """Check database status for debugging."""
+    with engine.connect() as conn:
+        job_count = conn.execute(text("SELECT COUNT(*) FROM job_listings")).scalar()
+        with_embeddings = conn.execute(text("SELECT COUNT(*) FROM job_listings WHERE embedding IS NOT NULL")).scalar()
+        col_info = conn.execute(text("""
+            SELECT column_name, udt_name, character_maximum_length
+            FROM information_schema.columns
+            WHERE table_name = 'job_listings' AND column_name = 'embedding'
+        """)).fetchone()
+    return {
+        "total_jobs": job_count,
+        "jobs_with_embeddings": with_embeddings,
+        "embedding_column": str(col_info) if col_info else "not found"
+    }
+
+@app.get("/api/v1/admin/job-count")
+async def job_count():
+    """Return the total number of job listings in the database."""
+    with engine.connect() as conn:
+        total = conn.execute(text("SELECT COUNT(*) FROM job_listings")).scalar()
+    return {"total_jobs": total}
+
+@app.post("/api/v1/admin/backfill-embeddings")
+async def backfill_embeddings(batch_size: int = 50):
+    """Compute and store embeddings for all jobs that don't have one yet."""
+    with engine.connect() as conn:
+        rows = conn.execute(text(
+            "SELECT id, title, description FROM job_listings WHERE embedding IS NULL LIMIT :n"
+        ), {"n": batch_size}).fetchall()
+
+    if not rows:
+        return {"message": "All jobs already have embeddings.", "count": 0}
+
+    updated = 0
+    failed = 0
+    last_error = None
+    for row in rows:
+        try:
+            embedding = await embed(f"{row.title} {row.description[:800]}")
+            emb_str = "[" + ",".join(str(x) for x in embedding) + "]"
+            with engine.connect() as conn:
+                conn.execute(text(
+                    "UPDATE job_listings SET embedding = CAST(:emb AS vector), updated_at = NOW() WHERE id = :id"
+                ), {"emb": emb_str, "id": row.id})
+                conn.commit()
+            updated += 1
+        except Exception as e:
+            last_error = str(e)
+            print(f"Backfill error for {row.id}: {e}")
+            failed += 1
+
+    # Check how many still remain
+    with engine.connect() as conn:
+        remaining = conn.execute(text(
+            "SELECT COUNT(*) FROM job_listings WHERE embedding IS NULL"
+        )).scalar()
+
+    return {
+        "message": f"Backfilled {updated} jobs in this batch.",
+        "updated": updated,
+        "failed": failed,
+        "remaining": remaining,
+        "last_error": last_error,
+        "openai_key_set": bool(os.getenv("OPENAI_API_KEY"))
+    }
+
+
 # ── Events Status ─────────────────────────────────────────────────────────────
 @app.get("/api/v1/recruiter/events")
 async def get_events(recruiter_id: Optional[str] = Depends(get_recruiter_id)):
