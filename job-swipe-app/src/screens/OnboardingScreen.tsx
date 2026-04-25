@@ -116,13 +116,6 @@ export default function OnboardingScreen({ navigation }: any) {
       <View style={styles.screen}>
         <Toast message={toast?.message ?? ''} type={toast?.type} visible={!!toast} onDismiss={hideToast} />
 
-        {/* Top pill */}
-        <View style={styles.topBar}>
-          <TouchableOpacity style={styles.signinPill}>
-            <Text style={styles.signinPillText}>Already have an account?  Sign in →</Text>
-          </TouchableOpacity>
-        </View>
-
         {/* Carousel */}
         <FlatList
           ref={flatListRef}
@@ -267,25 +260,6 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: C.bg,
     justifyContent: 'space-between',
-  },
-
-  // Top pill
-  topBar: {
-    paddingTop: 56,
-    alignItems: 'center',
-  },
-  signinPill: {
-    backgroundColor: C.surface2,
-    paddingHorizontal: S.xl,
-    paddingVertical: S.sm + 2,
-    borderRadius: R.pill,
-    borderWidth: 1,
-    borderColor: C.border,
-  },
-  signinPillText: {
-    color: C.textSub,
-    fontSize: T.sm,
-    fontWeight: T.medium,
   },
 
   // Slide

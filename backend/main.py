@@ -292,7 +292,10 @@ async def jobs_feed(
     if total == 0:
         return {"jobs": [], "total": 0}
 
-    # Always use simple random query — vector search requires Ollama which is not on Railway
+    # Use PostgreSQL full-text search (ts_rank) for real match scoring.
+    # Vector search via Ollama is not available on Railway, but ts_rank
+    # gives meaningful keyword-based relevance without any external service.
+    resume_q = resume_summary.strip()
     try:
         with engine.connect() as conn:
             # Discover actual columns to build a safe SELECT
@@ -311,21 +314,44 @@ async def jobs_feed(
                 select_parts.append("excerpt")
             else:
                 select_parts.append("LEFT(description, 200) AS excerpt" if "description" in cols else "NULL AS excerpt")
-            select_parts.append("70 AS match_score")
+
+            if resume_q:
+                # ts_rank returns 0..~0.5 for typical matches; scale to 45–95 range.
+                # Formula: 50 + ts_rank * 90  → clipped to [45, 95]
+                score_expr = (
+                    "GREATEST(45, LEAST(95, (50 + "
+                    "ts_rank("
+                    "  to_tsvector('english', COALESCE(title,'') || ' ' || COALESCE(description,'')),"
+                    "  plainto_tsquery('english', :resume_q)"
+                    ") * 90)::integer)) AS match_score"
+                )
+            else:
+                # No resume — deterministic hash of job id for consistent variety (55–90 range)
+                score_expr = (
+                    "GREATEST(55, LEAST(90, (55 + ABS(HASHTEXT(id::text)) % 36)::integer)) AS match_score"
+                )
+            select_parts.append(score_expr)
 
             select_sql = ", ".join(select_parts)
+            bind_params: dict = {"lim": limit}
+            if resume_q:
+                bind_params["resume_q"] = resume_q
+
+            # Order by relevance when resume provided, otherwise random
+            order_clause = "match_score DESC, RANDOM()" if resume_q else "RANDOM()"
 
             if exclude_list:
+                bind_params["excl"] = exclude_list
                 rows = conn.execute(text(f"""
                     SELECT {select_sql}
                     FROM job_listings WHERE id != ALL(:excl)
-                    ORDER BY RANDOM() LIMIT :lim
-                """), {"excl": exclude_list, "lim": limit}).fetchall()
+                    ORDER BY {order_clause} LIMIT :lim
+                """), bind_params).fetchall()
             else:
                 rows = conn.execute(text(f"""
                     SELECT {select_sql}
-                    FROM job_listings ORDER BY RANDOM() LIMIT :lim
-                """), {"lim": limit}).fetchall()
+                    FROM job_listings ORDER BY {order_clause} LIMIT :lim
+                """), bind_params).fetchall()
     except Exception as e:
         raise HTTPException(500, f"Failed to fetch jobs: {str(e)}")
 
