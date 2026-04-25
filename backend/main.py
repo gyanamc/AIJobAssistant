@@ -2,7 +2,7 @@ import os
 import json
 import hashlib
 import httpx
-from fastapi import FastAPI, HTTPException, status, Depends, Request
+from fastapi import FastAPI, HTTPException, status, Depends, Request, UploadFile, File
 from fastapi.responses import HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -75,6 +75,21 @@ def init_db():
                 created_at TIMESTAMP DEFAULT NOW()
             )
         """))
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS job_listings (
+                id TEXT PRIMARY KEY,
+                title TEXT NOT NULL,
+                company TEXT,
+                location TEXT,
+                source TEXT DEFAULT 'naukri',
+                description TEXT,
+                excerpt TEXT,
+                apply_url TEXT,
+                embedding vector(768),
+                created_at TIMESTAMP DEFAULT NOW(),
+                updated_at TIMESTAMP DEFAULT NOW()
+            )
+        """))
         conn.commit()
 
 try:
@@ -134,6 +149,132 @@ async def llm_reason(jd: str, candidate_summary: str, rank: int) -> str:
 @app.get("/")
 def health():
     return {"status": "ok", "version": "3.0.0"}
+
+# ── Resume Parse ──────────────────────────────────────────────────────────────
+@app.post("/api/v1/resume/parse")
+async def parse_resume(file: UploadFile = File(...)):
+    """Parse a resume PDF or text file and extract structured summary using Groq."""
+    groq_key = os.getenv("GROQ_API_KEY")
+    if not groq_key:
+        raise HTTPException(503, "Resume parsing service not configured.")
+
+    content = await file.read()
+    # Decode text content (works for .txt; for PDF we extract raw bytes as text best-effort)
+    try:
+        text_content = content.decode("utf-8", errors="ignore")
+    except Exception:
+        raise HTTPException(400, "Could not read file content.")
+
+    # Truncate to avoid token limits
+    text_content = text_content[:6000]
+
+    system_prompt = (
+        "You are an expert resume parser. Extract structured information from the resume text. "
+        "Respond with EXACTLY valid JSON with these keys:\n"
+        '- "name": string (full name)\n'
+        '- "email": string\n'
+        '- "phone": string\n'
+        '- "skills": array of strings (top technical and soft skills)\n'
+        '- "experience_summary": string (2-3 sentence professional summary)\n'
+        '- "target_roles": array of strings (suitable job titles based on experience)\n'
+        'If a field cannot be determined, use an empty string or empty array.'
+    )
+
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            res = await client.post(
+                "https://api.groq.com/openai/v1/chat/completions",
+                headers={"Authorization": f"Bearer {groq_key}", "Content-Type": "application/json"},
+                json={
+                    "model": "llama-3.1-8b-instant",
+                    "messages": [
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": f"Parse this resume:\n\n{text_content}"}
+                    ],
+                    "response_format": {"type": "json_object"},
+                    "temperature": 0.1,
+                    "max_tokens": 800
+                }
+            )
+        if res.status_code != 200:
+            raise HTTPException(502, f"Groq returned {res.status_code}")
+        parsed = json.loads(res.json()["choices"][0]["message"]["content"])
+        parsed["synced_at"] = ""
+        return parsed
+    except json.JSONDecodeError:
+        raise HTTPException(502, "Invalid JSON from parsing model.")
+    except httpx.TimeoutException:
+        raise HTTPException(504, "Resume parsing timed out.")
+
+# ── Job Feed ──────────────────────────────────────────────────────────────────
+@app.get("/api/v1/jobs/feed")
+async def jobs_feed(
+    resume_summary: str = "",
+    exclude_ids: str = "",
+    limit: int = 20,
+):
+    """Return job listings ranked by vector similarity to the resume summary."""
+    groq_key = os.getenv("GROQ_API_KEY")
+    exclude_list = [x.strip() for x in exclude_ids.split(",") if x.strip()]
+
+    try:
+        with engine.connect() as conn:
+            total = conn.execute(text("SELECT COUNT(*) FROM job_listings")).scalar() or 0
+    except Exception:
+        total = 0
+
+    # If no jobs in DB, return empty with helpful message
+    if total == 0:
+        return {"jobs": [], "total": 0}
+
+    # Build embedding for similarity search
+    if resume_summary:
+        try:
+            query_embedding = await embed(resume_summary[:1000])
+            emb_str = "[" + ",".join(str(x) for x in query_embedding) + "]"
+
+            exclude_clause = ""
+            params: dict = {"emb": emb_str, "lim": limit}
+            if exclude_list:
+                exclude_clause = "AND id != ALL(:excl)"
+                params["excl"] = exclude_list
+
+            with engine.connect() as conn:
+                rows = conn.execute(text(f"""
+                    SELECT id, title, company, location, source, description, excerpt, apply_url,
+                           ROUND(CAST((1 - (embedding <=> :emb::vector)) * 100 AS numeric), 0) AS match_score
+                    FROM job_listings
+                    WHERE embedding IS NOT NULL {exclude_clause}
+                    ORDER BY embedding <=> :emb::vector
+                    LIMIT :lim
+                """), params).fetchall()
+        except Exception:
+            # Fallback to random jobs if embedding fails
+            with engine.connect() as conn:
+                rows = conn.execute(text(
+                    "SELECT id, title, company, location, source, description, excerpt, apply_url, 70 AS match_score FROM job_listings LIMIT :lim"
+                ), {"lim": limit}).fetchall()
+    else:
+        with engine.connect() as conn:
+            rows = conn.execute(text(
+                "SELECT id, title, company, location, source, description, excerpt, apply_url, 70 AS match_score FROM job_listings LIMIT :lim"
+            ), {"lim": limit}).fetchall()
+
+    jobs = []
+    for row in rows:
+        jobs.append({
+            "id": str(row.id),
+            "title": row.title or "",
+            "company": row.company or "",
+            "location": row.location or "Remote",
+            "source": row.source or "naukri",
+            "description": row.description or "",
+            "excerpt": row.excerpt or (row.description or "")[:200],
+            "match_score": int(row.match_score) if row.match_score is not None else 70,
+            "apply_url": row.apply_url or "",
+        })
+
+    return {"jobs": jobs, "total": len(jobs)}
 
 # ── Ollama Proxy ──────────────────────────────────────────────────────────────
 class OllamaMessage(BaseModel):

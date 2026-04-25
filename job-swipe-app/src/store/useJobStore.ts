@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import NetInfo from '@react-native-community/netinfo';
 import { getItem, setItem, KEYS } from '../utils/storage';
 import { fetchJobFeed } from '../api/jobsApi';
-import type { JobCard, SwipeRecord, CachedJobBatch } from '../types';
+import type { JobCard, SwipeRecord, CachedJobBatch, UserPreferences } from '../types';
 
 interface JobStore {
   deck: JobCard[];
@@ -47,7 +47,7 @@ export const useJobStore = create<JobStore>((set, get) => ({
           skills: string[];
           target_roles: string[];
         }>(KEYS.RESUME_SUMMARY),
-        getItem<{ target_roles: string[]; preferred_locations: string[]; }>(KEYS.PREFERENCES),
+        getItem<UserPreferences>(KEYS.PREFERENCES),
       ]);
 
       // Build a rich query string from all resume fields + preferences for better matching
