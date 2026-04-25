@@ -35,62 +35,68 @@ if DATABASE_URL.startswith("postgres://"):
 engine = create_engine(DATABASE_URL)
 
 # ── DB Init ───────────────────────────────────────────────────────────────────
+def _run_ddl(sql: str):
+    """Run a single DDL statement in its own connection+transaction, ignoring errors."""
+    try:
+        with engine.connect() as conn:
+            conn.execute(text(sql))
+            conn.commit()
+    except Exception as e:
+        print(f"DDL warning (non-fatal): {e}")
+
 def init_db():
-    with engine.connect() as conn:
-        conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
-        conn.execute(text("""
-            CREATE TABLE IF NOT EXISTS candidate_profiles (
-                id SERIAL PRIMARY KEY,
-                candidate_hash TEXT UNIQUE NOT NULL,
-                role_title TEXT,
-                skills TEXT,
-                location TEXT,
-                experience TEXT,
-                summary TEXT,
-                name_enc TEXT,
-                email_enc TEXT,
-                phone_enc TEXT,
-                embedding vector(768),
-                created_at TIMESTAMP DEFAULT NOW(),
-                updated_at TIMESTAMP DEFAULT NOW()
-            )
-        """))
-        conn.execute(text("""
-            CREATE TABLE IF NOT EXISTS recruiter_events (
-                id SERIAL PRIMARY KEY,
-                recruiter_id TEXT NOT NULL,
-                events_used INTEGER DEFAULT 0,
-                unmasked_candidates TEXT DEFAULT '[]',
-                created_at TIMESTAMP DEFAULT NOW()
-            )
-        """))
-        conn.execute(text("""
-            CREATE TABLE IF NOT EXISTS vetted_matches (
-                id SERIAL PRIMARY KEY,
-                candidate_hash TEXT,
-                job_title TEXT,
-                company_name TEXT,
-                is_match BOOLEAN,
-                reasoning TEXT,
-                created_at TIMESTAMP DEFAULT NOW()
-            )
-        """))
-        conn.execute(text("""
-            CREATE TABLE IF NOT EXISTS job_listings (
-                id TEXT PRIMARY KEY,
-                title TEXT NOT NULL,
-                company TEXT,
-                location TEXT,
-                source TEXT DEFAULT 'naukri',
-                description TEXT,
-                excerpt TEXT,
-                apply_url TEXT,
-                embedding vector(768),
-                created_at TIMESTAMP DEFAULT NOW(),
-                updated_at TIMESTAMP DEFAULT NOW()
-            )
-        """))
-        conn.commit()
+    _run_ddl("CREATE EXTENSION IF NOT EXISTS vector")
+    _run_ddl("""
+        CREATE TABLE IF NOT EXISTS candidate_profiles (
+            id SERIAL PRIMARY KEY,
+            candidate_hash TEXT UNIQUE NOT NULL,
+            role_title TEXT,
+            skills TEXT,
+            location TEXT,
+            experience TEXT,
+            summary TEXT,
+            name_enc TEXT,
+            email_enc TEXT,
+            phone_enc TEXT,
+            embedding vector(768),
+            created_at TIMESTAMP DEFAULT NOW(),
+            updated_at TIMESTAMP DEFAULT NOW()
+        )
+    """)
+    _run_ddl("""
+        CREATE TABLE IF NOT EXISTS recruiter_events (
+            id SERIAL PRIMARY KEY,
+            recruiter_id TEXT NOT NULL,
+            events_used INTEGER DEFAULT 0,
+            unmasked_candidates TEXT DEFAULT '[]',
+            created_at TIMESTAMP DEFAULT NOW()
+        )
+    """)
+    _run_ddl("""
+        CREATE TABLE IF NOT EXISTS vetted_matches (
+            id SERIAL PRIMARY KEY,
+            candidate_hash TEXT,
+            job_title TEXT,
+            company_name TEXT,
+            is_match BOOLEAN,
+            reasoning TEXT,
+            created_at TIMESTAMP DEFAULT NOW()
+        )
+    """)
+    _run_ddl("""
+        CREATE TABLE IF NOT EXISTS job_listings (
+            id TEXT PRIMARY KEY,
+            title TEXT NOT NULL,
+            company TEXT,
+            location TEXT,
+            source TEXT DEFAULT 'naukri',
+            description TEXT,
+            excerpt TEXT,
+            apply_url TEXT,
+            created_at TIMESTAMP DEFAULT NOW(),
+            updated_at TIMESTAMP DEFAULT NOW()
+        )
+    """)
 
 try:
     init_db()
@@ -214,7 +220,6 @@ async def jobs_feed(
     limit: int = 20,
 ):
     """Return job listings ranked by vector similarity to the resume summary."""
-    groq_key = os.getenv("GROQ_API_KEY")
     exclude_list = [x.strip() for x in exclude_ids.split(",") if x.strip()]
 
     try:
@@ -227,38 +232,24 @@ async def jobs_feed(
     if total == 0:
         return {"jobs": [], "total": 0}
 
-    # Build embedding for similarity search
-    if resume_summary:
-        try:
-            query_embedding = await embed(resume_summary[:1000])
-            emb_str = "[" + ",".join(str(x) for x in query_embedding) + "]"
-
-            exclude_clause = ""
-            params: dict = {"emb": emb_str, "lim": limit}
-            if exclude_list:
-                exclude_clause = "AND id != ALL(:excl)"
-                params["excl"] = exclude_list
-
-            with engine.connect() as conn:
-                rows = conn.execute(text(f"""
-                    SELECT id, title, company, location, source, description, excerpt, apply_url,
-                           ROUND(CAST((1 - (embedding <=> :emb::vector)) * 100 AS numeric), 0) AS match_score
-                    FROM job_listings
-                    WHERE embedding IS NOT NULL {exclude_clause}
-                    ORDER BY embedding <=> :emb::vector
-                    LIMIT :lim
-                """), params).fetchall()
-        except Exception:
-            # Fallback to random jobs if embedding fails
-            with engine.connect() as conn:
-                rows = conn.execute(text(
-                    "SELECT id, title, company, location, source, description, excerpt, apply_url, 70 AS match_score FROM job_listings LIMIT :lim"
-                ), {"lim": limit}).fetchall()
-    else:
+    # Always use simple random query — vector search requires Ollama which is not on Railway
+    try:
         with engine.connect() as conn:
-            rows = conn.execute(text(
-                "SELECT id, title, company, location, source, description, excerpt, apply_url, 70 AS match_score FROM job_listings LIMIT :lim"
-            ), {"lim": limit}).fetchall()
+            if exclude_list:
+                rows = conn.execute(text("""
+                    SELECT id, title, company, location, source, description, excerpt, apply_url,
+                           70 AS match_score
+                    FROM job_listings WHERE id != ALL(:excl)
+                    ORDER BY RANDOM() LIMIT :lim
+                """), {"excl": exclude_list, "lim": limit}).fetchall()
+            else:
+                rows = conn.execute(text("""
+                    SELECT id, title, company, location, source, description, excerpt, apply_url,
+                           70 AS match_score
+                    FROM job_listings ORDER BY RANDOM() LIMIT :lim
+                """), {"lim": limit}).fetchall()
+    except Exception as e:
+        raise HTTPException(500, f"Failed to fetch jobs: {str(e)}")
 
     jobs = []
     for row in rows:
