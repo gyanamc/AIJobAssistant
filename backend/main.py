@@ -125,6 +125,20 @@ async def get_recruiter_id(credentials: HTTPAuthorizationCredentials = Depends(s
 
 # ── Ollama helpers ────────────────────────────────────────────────────────────
 async def embed(text_input: str) -> List[float]:
+    """Generate embeddings. Uses OpenAI text-embedding-3-small (1536-dim) if key set,
+    otherwise falls back to Ollama nomic-embed-text (768-dim)."""
+    openai_key = os.getenv("OPENAI_API_KEY")
+    if openai_key:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            res = await client.post(
+                "https://api.openai.com/v1/embeddings",
+                headers={"Authorization": f"Bearer {openai_key}", "Content-Type": "application/json"},
+                json={"model": "text-embedding-3-small", "input": text_input[:8000]}
+            )
+            if res.status_code == 200:
+                return res.json()["data"][0]["embedding"]
+            raise HTTPException(503, f"OpenAI embedding error: {res.status_code} {res.text}")
+    # Fallback: Ollama
     async with httpx.AsyncClient(timeout=30.0) as client:
         res = await client.post(f"{OLLAMA_HOST}/api/embeddings", json={
             "model": "nomic-embed-text",
@@ -274,36 +288,11 @@ async def generate_cover_letter(req: CoverLetterRequest):
 
 # ── Job Feed ──────────────────────────────────────────────────────────────────
 async def _embed_for_search(text_input: str) -> list:
-    """Generate embeddings for job search.
-    Uses OpenAI text-embedding-3-small (1536-dim) if key available,
-    otherwise falls back to Ollama nomic-embed-text (768-dim).
-    Note: only matches jobs whose embeddings were created with the same model.
-    """
-    openai_key = os.getenv("OPENAI_API_KEY")
-    if openai_key:
-        try:
-            async with httpx.AsyncClient(timeout=15.0) as client:
-                res = await client.post(
-                    "https://api.openai.com/v1/embeddings",
-                    headers={"Authorization": f"Bearer {openai_key}", "Content-Type": "application/json"},
-                    json={"model": "text-embedding-3-small", "input": text_input[:8000]}
-                )
-                if res.status_code == 200:
-                    return res.json()["data"][0]["embedding"]
-        except Exception:
-            pass
-    # Fallback: Ollama (only works locally)
+    """Generate embeddings for search — delegates to embed() which uses OpenAI if key set."""
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            res = await client.post(f"{OLLAMA_HOST}/api/embeddings", json={
-                "model": "nomic-embed-text",
-                "prompt": text_input
-            })
-            if res.status_code == 200:
-                return res.json()["embedding"]
+        return await embed(text_input)
     except Exception:
-        pass
-    return []
+        return []
 
 @app.get("/api/v1/jobs/feed")
 async def jobs_feed(
@@ -689,14 +678,20 @@ async def job_count():
 
 @app.post("/api/v1/admin/backfill-embeddings")
 async def backfill_embeddings(batch_size: int = 50):
-    """Compute and store embeddings for all jobs that don't have one yet."""
+    """Compute and store embeddings for all jobs that don't have one yet.
+    Uses OpenAI text-embedding-3-small if OPENAI_API_KEY is set (1536-dim),
+    otherwise falls back to Ollama nomic-embed-text (768-dim).
+    """
+    openai_key = os.getenv("OPENAI_API_KEY")
+    model_used = "openai/text-embedding-3-small" if openai_key else "ollama/nomic-embed-text"
+
     with engine.connect() as conn:
         rows = conn.execute(text(
             "SELECT id, title, description FROM job_listings WHERE embedding IS NULL LIMIT :n"
         ), {"n": batch_size}).fetchall()
 
     if not rows:
-        return {"message": "All jobs already have embeddings.", "count": 0}
+        return {"message": "All jobs already have embeddings.", "count": 0, "model": model_used}
 
     updated = 0
     failed = 0
@@ -716,7 +711,6 @@ async def backfill_embeddings(batch_size: int = 50):
             print(f"Backfill error for {row.id}: {e}")
             failed += 1
 
-    # Check how many still remain
     with engine.connect() as conn:
         remaining = conn.execute(text(
             "SELECT COUNT(*) FROM job_listings WHERE embedding IS NULL"
@@ -728,8 +722,61 @@ async def backfill_embeddings(batch_size: int = 50):
         "failed": failed,
         "remaining": remaining,
         "last_error": last_error,
-        "openai_key_set": bool(os.getenv("OPENAI_API_KEY"))
+        "model": model_used,
+        "openai_key_set": bool(openai_key)
     }
+
+@app.post("/api/v1/admin/migrate-to-openai-embeddings")
+async def migrate_to_openai_embeddings(batch_size: int = 100):
+    """
+    One-time migration: resize embedding column to 1536-dim and re-embed ALL jobs
+    using OpenAI text-embedding-3-small. Call this endpoint repeatedly until
+    remaining=0. Each call processes batch_size jobs.
+
+    Step 1 (first call): Alters the column type from vector(768) to vector(1536)
+                         and clears all existing embeddings so they get re-generated.
+    Step 2 (subsequent calls): Re-embeds jobs in batches.
+    """
+    openai_key = os.getenv("OPENAI_API_KEY")
+    if not openai_key:
+        raise HTTPException(503, "OPENAI_API_KEY not set — cannot migrate.")
+
+    # Step 1: Check if column is already 1536-dim
+    with engine.connect() as conn:
+        col_info = conn.execute(text("""
+            SELECT udt_name, character_maximum_length,
+                   pg_attribute.atttypmod
+            FROM information_schema.columns
+            JOIN pg_class ON pg_class.relname = table_name
+            JOIN pg_attribute ON pg_attribute.attrelid = pg_class.oid
+                AND pg_attribute.attname = column_name
+            WHERE table_name = 'job_listings' AND column_name = 'embedding'
+        """)).fetchone()
+
+        needs_migration = True
+        if col_info:
+            # atttypmod for vector(N) encodes N; vector(1536) has atttypmod = 1536 + 4 = 1540
+            dim = (col_info.atttypmod - 4) if col_info.atttypmod and col_info.atttypmod > 0 else 0
+            if dim == 1536:
+                needs_migration = False
+
+        if needs_migration:
+            # Drop existing embeddings and resize column
+            conn.execute(text("UPDATE job_listings SET embedding = NULL"))
+            conn.execute(text("UPDATE candidate_profiles SET embedding = NULL"))
+            conn.execute(text("ALTER TABLE job_listings ALTER COLUMN embedding TYPE vector(1536)"))
+            conn.execute(text("ALTER TABLE candidate_profiles ALTER COLUMN embedding TYPE vector(1536)"))
+            conn.commit()
+            return {
+                "message": "Column resized to vector(1536). All embeddings cleared. Call this endpoint again to start re-embedding.",
+                "step": "migration_complete",
+                "next": "Call POST /api/v1/admin/backfill-embeddings?batch_size=100 repeatedly until remaining=0"
+            }
+
+    # Step 2: Re-embed in batches (delegates to backfill_embeddings)
+    result = await backfill_embeddings(batch_size)
+    result["step"] = "re_embedding"
+    return result
 
 
 # ── Events Status ─────────────────────────────────────────────────────────────
