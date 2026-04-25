@@ -3,7 +3,6 @@ import {
   View, Text, StyleSheet, TextInput,
   TouchableOpacity, ScrollView,
 } from 'react-native';
-import { v4 as uuidv4 } from 'uuid';
 import { generateCoverLetter } from '../api/jobsApi';
 import { useApplicationStore } from '../store/useApplicationStore';
 import { useJobStore } from '../store/useJobStore';
@@ -14,6 +13,14 @@ import MatchScoreBadge from '../components/MatchScoreBadge';
 import LoadingOverlay from '../components/LoadingOverlay';
 import type { ResumeSummary, DraftApplication } from '../types';
 import { C, T, R, S, SHADOW } from '../theme';
+
+// Pure JS UUID — no native crypto dependency needed
+function generateId(): string {
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+    const r = Math.random() * 16 | 0;
+    return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+  });
+}
 
 const TIMEOUT_MS = 30_000;
 
@@ -57,7 +64,7 @@ export default function HILReviewScreen({ route, navigation }: any) {
   async function handleConfirm(status: 'draft' | 'auto-applied' = 'draft') {
     try {
       const draft: DraftApplication = {
-        id: uuidv4(),
+        id: generateId(),
         job_id: job.id,
         job_title: job.title,
         company: job.company,

@@ -147,7 +147,7 @@ export default function SwipeDeck<T>({
       <View style={styles.deck}>
         {cards.slice(0, 3).map((card, i) => (
           <SwipeCard
-            key={i}
+            key={(card as any)?.id ?? i}
             card={card}
             index={i}
             isTop={i === 0}

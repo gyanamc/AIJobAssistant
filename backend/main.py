@@ -165,11 +165,28 @@ async def parse_resume(file: UploadFile = File(...)):
         raise HTTPException(503, "Resume parsing service not configured.")
 
     content = await file.read()
-    # Decode text content (works for .txt; for PDF we extract raw bytes as text best-effort)
-    try:
-        text_content = content.decode("utf-8", errors="ignore")
-    except Exception:
-        raise HTTPException(400, "Could not read file content.")
+    filename = (file.filename or "").lower()
+
+    # Extract text based on file type
+    text_content = ""
+    if filename.endswith(".pdf") or file.content_type == "application/pdf":
+        try:
+            import io
+            from pypdf import PdfReader
+            reader = PdfReader(io.BytesIO(content))
+            pages = [page.extract_text() or "" for page in reader.pages]
+            text_content = "\n".join(pages).strip()
+        except Exception as e:
+            # Fallback: try raw decode
+            text_content = content.decode("utf-8", errors="ignore")
+    else:
+        try:
+            text_content = content.decode("utf-8", errors="ignore")
+        except Exception:
+            raise HTTPException(400, "Could not read file content.")
+
+    if not text_content.strip():
+        raise HTTPException(400, "Could not extract text from the file. Please use a text-based PDF or .txt file.")
 
     # Truncate to avoid token limits
     text_content = text_content[:6000]

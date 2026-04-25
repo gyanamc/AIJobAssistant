@@ -32,7 +32,7 @@ const SLIDES = [
   {
     id: '3',
     glyph: '⇄',
-    title: 'You're in Control',
+    title: "You're in Control",
     sub: 'Swipe right to apply, left to pass.\nLow-confidence matches get your review first.',
   },
   {
