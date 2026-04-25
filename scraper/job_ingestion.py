@@ -24,6 +24,7 @@ ADZUNA_APP_ID = os.getenv("ADZUNA_APP_ID", "")
 ADZUNA_APP_KEY= os.getenv("ADZUNA_APP_KEY", "")
 JSEARCH_KEY   = os.getenv("JSEARCH_API_KEY", "")  # RapidAPI key
 GROQ_API_KEY  = os.getenv("GROQ_API_KEY", "")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 OLLAMA_HOST   = os.getenv("OLLAMA_HOST", "http://localhost:11434")
 
 if DATABASE_URL.startswith("postgres://"):
@@ -53,9 +54,54 @@ INDIA_LOCATIONS = ["India", "Bangalore", "Mumbai", "Delhi", "Hyderabad", "Pune",
 USA_LOCATIONS   = ["United States", "New York", "San Francisco", "Austin", "Remote"]
 ALL_LOCATIONS   = INDIA_LOCATIONS + USA_LOCATIONS
 
-# ── Embedding via Groq (text-embedding not available, use nomic via Ollama) ───
+# ── Quality check ─────────────────────────────────────────────────────────────
+def is_quality_job(job: dict) -> tuple[bool, str]:
+    """Returns (passes, reason). Rejects spam, incomplete, or low-quality jobs."""
+    title = job.get("title", "").strip()
+    company = job.get("company", "").strip()
+    desc = job.get("description", "").strip()
+    apply_url = job.get("apply_url", "").strip()
+
+    if not title or len(title) < 3:
+        return False, "missing title"
+    if not company or company in ("Unknown", "", "N/A"):
+        return False, "missing company"
+    if not apply_url or not apply_url.startswith("http"):
+        return False, "invalid apply_url"
+    if len(desc) < 100:
+        return False, f"description too short ({len(desc)} chars)"
+
+    spam_keywords = ["test job", "dummy", "sample posting", "xxx", "asdf", "lorem ipsum"]
+    title_lower = title.lower()
+    if any(kw in title_lower for kw in spam_keywords):
+        return False, f"spam title: {title}"
+
+    return True, "ok"
+
+# ── Embedding via OpenAI (primary) or Ollama (fallback) ───────────────────────
 async def embed_text(text_input: str) -> list[float] | None:
-    """Try Ollama embed first, fall back to a zero vector if unavailable."""
+    """Generate embedding using OpenAI text-embedding-3-small (1536-dim).
+    Falls back to Ollama nomic-embed-text (768-dim) if no OpenAI key.
+    Returns None if both fail — job will be inserted without embedding for later backfill.
+    """
+    if OPENAI_API_KEY:
+        try:
+            async with httpx.AsyncClient(timeout=20.0) as client:
+                res = await client.post(
+                    "https://api.openai.com/v1/embeddings",
+                    headers={
+                        "Authorization": f"Bearer {OPENAI_API_KEY}",
+                        "Content-Type": "application/json"
+                    },
+                    json={"model": "text-embedding-3-small", "input": text_input[:8000]}
+                )
+                if res.status_code == 200:
+                    return res.json()["data"][0]["embedding"]
+                print(f"  OpenAI embedding error: {res.status_code}")
+        except Exception as e:
+            print(f"  OpenAI embedding exception: {e}")
+
+    # Fallback: Ollama
     try:
         async with httpx.AsyncClient(timeout=20.0) as client:
             res = await client.post(f"{OLLAMA_HOST}/api/embeddings", json={
@@ -66,7 +112,7 @@ async def embed_text(text_input: str) -> list[float] | None:
                 return res.json()["embedding"]
     except Exception:
         pass
-    # Return None — job will be inserted without embedding, can be backfilled later
+
     return None
 
 # ── DB helpers ────────────────────────────────────────────────────────────────
@@ -248,10 +294,16 @@ async def run_pipeline(target: int = 500):
         if job_exists(job["id"]):
             skipped += 1
             continue
+        passes, reason = is_quality_job(job)
+        if not passes:
+            print(f"  ⚠️  Rejected: {job.get('title', '?')} — {reason}")
+            skipped += 1
+            continue
         embedding = await embed_text(f"{job['title']} {job['description'][:500]}")
         insert_job(job, embedding)
         inserted += 1
-        print(f"  [{inserted}] {job['title']} @ {job['company']}")
+        emb_status = "✓ embedded" if embedding else "⚠ no embedding"
+        print(f"  [{inserted}] {job['title']} @ {job['company']} ({emb_status})")
 
     # 2. Naukri RSS — free, no auth
     print("Fetching Naukri RSS jobs...")
@@ -265,11 +317,16 @@ async def run_pipeline(target: int = 500):
             if job_exists(job["id"]):
                 skipped += 1
                 continue
+            passes, reason = is_quality_job(job)
+            if not passes:
+                skipped += 1
+                continue
             embedding = await embed_text(f"{job['title']} {job['description'][:500]}")
             insert_job(job, embedding)
             inserted += 1
-            print(f"  [{inserted}] {job['title']} @ {job['company']} (naukri rss)")
-        await asyncio.sleep(1)  # polite delay
+            emb_status = "✓ embedded" if embedding else "⚠ no embedding"
+            print(f"  [{inserted}] {job['title']} @ {job['company']} (naukri rss | {emb_status})")
+        await asyncio.sleep(1)
 
     # 3. Adzuna — India + USA
     print("Fetching Adzuna jobs...")
@@ -286,10 +343,15 @@ async def run_pipeline(target: int = 500):
                 if job_exists(job["id"]):
                     skipped += 1
                     continue
+                passes, reason = is_quality_job(job)
+                if not passes:
+                    skipped += 1
+                    continue
                 embedding = await embed_text(f"{job['title']} {job['description'][:500]}")
                 insert_job(job, embedding)
                 inserted += 1
-                print(f"  [{inserted}] {job['title']} @ {job['company']} ({country})")
+                emb_status = "✓ embedded" if embedding else "⚠ no embedding"
+                print(f"  [{inserted}] {job['title']} @ {job['company']} ({country} | {emb_status})")
             await asyncio.sleep(random.uniform(0.5, 1.5))
 
     # 4. JSearch — fills remaining quota
@@ -308,10 +370,15 @@ async def run_pipeline(target: int = 500):
                     if job_exists(job["id"]):
                         skipped += 1
                         continue
+                    passes, reason = is_quality_job(job)
+                    if not passes:
+                        skipped += 1
+                        continue
                     embedding = await embed_text(f"{job['title']} {job['description'][:500]}")
                     insert_job(job, embedding)
                     inserted += 1
-                    print(f"  [{inserted}] {job['title']} @ {job['company']} ({location})")
+                    emb_status = "✓ embedded" if embedding else "⚠ no embedding"
+                    print(f"  [{inserted}] {job['title']} @ {job['company']} ({location} | {emb_status})")
                 await asyncio.sleep(random.uniform(1, 2))
 
     print(f"\n✅ Pipeline complete. Inserted: {inserted}, Skipped (duplicates): {skipped}")

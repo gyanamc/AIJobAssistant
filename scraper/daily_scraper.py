@@ -77,10 +77,11 @@ def is_valid_job(job: JobRecord) -> bool:
         return False
     if not job.apply_url or not job.apply_url.startswith("http"):
         return False
-    spam = ["test", "dummy", "sample", "xxx", "asdf"]
+    if len(job.description) < 100:
+        return False
+    spam = ["test", "dummy", "sample", "xxx", "asdf", "lorem ipsum"]
     if any(kw in job.title.lower() for kw in spam):
         return False
-    # Accept jobs even with short/missing descriptions
     return True
 
 # ── DB ────────────────────────────────────────────────────────────────────────
