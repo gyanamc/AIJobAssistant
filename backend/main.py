@@ -273,87 +273,123 @@ async def generate_cover_letter(req: CoverLetterRequest):
         raise HTTPException(504, "Cover letter generation timed out.")
 
 # ── Job Feed ──────────────────────────────────────────────────────────────────
+async def _embed_for_search(text_input: str) -> list:
+    """Generate embeddings for job search.
+    Uses OpenAI text-embedding-3-small (1536-dim) if key available,
+    otherwise falls back to Ollama nomic-embed-text (768-dim).
+    Note: only matches jobs whose embeddings were created with the same model.
+    """
+    openai_key = os.getenv("OPENAI_API_KEY")
+    if openai_key:
+        try:
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                res = await client.post(
+                    "https://api.openai.com/v1/embeddings",
+                    headers={"Authorization": f"Bearer {openai_key}", "Content-Type": "application/json"},
+                    json={"model": "text-embedding-3-small", "input": text_input[:8000]}
+                )
+                if res.status_code == 200:
+                    return res.json()["data"][0]["embedding"]
+        except Exception:
+            pass
+    # Fallback: Ollama (only works locally)
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            res = await client.post(f"{OLLAMA_HOST}/api/embeddings", json={
+                "model": "nomic-embed-text",
+                "prompt": text_input
+            })
+            if res.status_code == 200:
+                return res.json()["embedding"]
+    except Exception:
+        pass
+    return []
+
 @app.get("/api/v1/jobs/feed")
 async def jobs_feed(
     resume_summary: str = "",
     exclude_ids: str = "",
     limit: int = 20,
 ):
-    """Return job listings ranked by vector similarity to the resume summary."""
+    """Return job listings ranked by vector similarity to the resume summary, descending."""
     exclude_list = [x.strip() for x in exclude_ids.split(",") if x.strip()]
 
     try:
         with engine.connect() as conn:
             total = conn.execute(text("SELECT COUNT(*) FROM job_listings")).scalar() or 0
     except Exception:
-        total = 0
+        return {"jobs": [], "total": 0}
 
-    # If no jobs in DB, return empty with helpful message
     if total == 0:
         return {"jobs": [], "total": 0}
 
-    # Use PostgreSQL full-text search (ts_rank) for real match scoring.
-    # Vector search via Ollama is not available on Railway, but ts_rank
-    # gives meaningful keyword-based relevance without any external service.
     resume_q = resume_summary.strip()
-    try:
-        with engine.connect() as conn:
-            # Discover actual columns to build a safe SELECT
-            col_rows = conn.execute(text("""
-                SELECT column_name FROM information_schema.columns
-                WHERE table_name = 'job_listings'
-            """)).fetchall()
-            cols = {r[0] for r in col_rows}
+    rows = []
 
-            # Build select list from available columns
-            select_parts = ["id", "title"]
-            for c in ["company", "location", "source", "description", "apply_url"]:
-                select_parts.append(c if c in cols else f"NULL AS {c}")
-            # excerpt: derive from description if not present
-            if "excerpt" in cols:
-                select_parts.append("excerpt")
-            else:
-                select_parts.append("LEFT(description, 200) AS excerpt" if "description" in cols else "NULL AS excerpt")
+    # ── Strategy 1: Vector similarity (best) ─────────────────────────────────
+    if resume_q:
+        embedding = await _embed_for_search(resume_q)
+        if embedding:
+            emb_str = "[" + ",".join(str(x) for x in embedding) + "]"
+            try:
+                with engine.connect() as conn:
+                    excl_clause = "AND id != ALL(:excl)" if exclude_list else ""
+                    params = {"emb": emb_str, "lim": limit}
+                    if exclude_list:
+                        params["excl"] = exclude_list
+                    rows = conn.execute(text(f"""
+                        SELECT id, title, company, location, source, description,
+                               LEFT(description, 200) AS excerpt, apply_url,
+                               ROUND(CAST((1 - (embedding <=> :emb::vector)) * 100 AS numeric), 0)::integer AS match_score
+                        FROM job_listings
+                        WHERE embedding IS NOT NULL {excl_clause}
+                        ORDER BY embedding <=> :emb::vector
+                        LIMIT :lim
+                    """), params).fetchall()
+            except Exception:
+                rows = []
 
-            if resume_q:
-                # ts_rank returns 0..~0.5 for typical matches; scale to 45–95 range.
-                # Formula: 50 + ts_rank * 90  → clipped to [45, 95]
-                score_expr = (
-                    "GREATEST(45, LEAST(95, (50 + "
-                    "ts_rank("
-                    "  to_tsvector('english', COALESCE(title,'') || ' ' || COALESCE(description,'')),"
-                    "  plainto_tsquery('english', :resume_q)"
-                    ") * 90)::integer)) AS match_score"
-                )
-            else:
-                # No resume — deterministic hash of job id for consistent variety (55–90 range)
-                score_expr = (
-                    "GREATEST(55, LEAST(90, (55 + ABS(HASHTEXT(id::text)) % 36)::integer)) AS match_score"
-                )
-            select_parts.append(score_expr)
-
-            select_sql = ", ".join(select_parts)
-            bind_params: dict = {"lim": limit}
-            if resume_q:
-                bind_params["resume_q"] = resume_q
-
-            # Order by relevance when resume provided, otherwise random
-            order_clause = "match_score DESC, RANDOM()" if resume_q else "RANDOM()"
-
-            if exclude_list:
-                bind_params["excl"] = exclude_list
+    # ── Strategy 2: Full-text search (good fallback) ──────────────────────────
+    if not rows and resume_q:
+        try:
+            with engine.connect() as conn:
+                excl_clause = "AND id != ALL(:excl)" if exclude_list else ""
+                params = {"resume_q": resume_q, "lim": limit}
+                if exclude_list:
+                    params["excl"] = exclude_list
                 rows = conn.execute(text(f"""
-                    SELECT {select_sql}
-                    FROM job_listings WHERE id != ALL(:excl)
-                    ORDER BY {order_clause} LIMIT :lim
-                """), bind_params).fetchall()
-            else:
+                    SELECT id, title, company, location, source, description,
+                           LEFT(description, 200) AS excerpt, apply_url,
+                           GREATEST(50, LEAST(95,
+                               (55 + ts_rank(
+                                   to_tsvector('english', COALESCE(title,'') || ' ' || COALESCE(description,'')),
+                                   plainto_tsquery('english', :resume_q)
+                               ) * 120)::integer
+                           )) AS match_score
+                    FROM job_listings {excl_clause}
+                    ORDER BY match_score DESC, RANDOM()
+                    LIMIT :lim
+                """), params).fetchall()
+        except Exception:
+            rows = []
+
+    # ── Strategy 3: Random (last resort, no resume) ───────────────────────────
+    if not rows:
+        try:
+            with engine.connect() as conn:
+                excl_clause = "AND id != ALL(:excl)" if exclude_list else ""
+                params = {"lim": limit}
+                if exclude_list:
+                    params["excl"] = exclude_list
                 rows = conn.execute(text(f"""
-                    SELECT {select_sql}
-                    FROM job_listings ORDER BY {order_clause} LIMIT :lim
-                """), bind_params).fetchall()
-    except Exception as e:
-        raise HTTPException(500, f"Failed to fetch jobs: {str(e)}")
+                    SELECT id, title, company, location, source, description,
+                           LEFT(description, 200) AS excerpt, apply_url,
+                           (55 + ABS(HASHTEXT(id::text)) % 36)::integer AS match_score
+                    FROM job_listings {excl_clause}
+                    ORDER BY RANDOM() LIMIT :lim
+                """), params).fetchall()
+        except Exception as e:
+            raise HTTPException(500, f"Failed to fetch jobs: {str(e)}")
 
     jobs = []
     for row in rows:
@@ -365,7 +401,7 @@ async def jobs_feed(
             "source": row.source or "naukri",
             "description": row.description or "",
             "excerpt": row.excerpt or (row.description or "")[:200],
-            "match_score": int(row.match_score) if row.match_score is not None else 70,
+            "match_score": int(row.match_score) if row.match_score is not None else 60,
             "apply_url": row.apply_url or "",
         })
 
