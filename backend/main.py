@@ -212,6 +212,49 @@ async def parse_resume(file: UploadFile = File(...)):
     except httpx.TimeoutException:
         raise HTTPException(504, "Resume parsing timed out.")
 
+# ── Cover Letter ──────────────────────────────────────────────────────────────
+class CoverLetterRequest(BaseModel):
+    job_id: str
+    job_title: str
+    company: str
+    job_description: str
+    resume_summary: str = ""
+
+@app.post("/api/v1/jobs/cover-letter")
+async def generate_cover_letter(req: CoverLetterRequest):
+    """Generate a tailored cover letter using Groq."""
+    groq_key = os.getenv("GROQ_API_KEY")
+    if not groq_key:
+        raise HTTPException(503, "Cover letter service not configured.")
+
+    prompt = (
+        f"Write a concise, professional cover letter for the following job.\n\n"
+        f"Job Title: {req.job_title}\nCompany: {req.company}\n"
+        f"Job Description:\n{req.job_description[:1500]}\n\n"
+        f"Candidate Background:\n{req.resume_summary[:800] or 'Not provided'}\n\n"
+        f"Write 2 short paragraphs. Be specific, confident, and avoid clichés. "
+        f"Return only the cover letter text, no subject line or salutation needed."
+    )
+
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            res = await client.post(
+                "https://api.groq.com/openai/v1/chat/completions",
+                headers={"Authorization": f"Bearer {groq_key}", "Content-Type": "application/json"},
+                json={
+                    "model": "llama-3.1-8b-instant",
+                    "messages": [{"role": "user", "content": prompt}],
+                    "temperature": 0.7,
+                    "max_tokens": 400
+                }
+            )
+        if res.status_code != 200:
+            raise HTTPException(502, f"Groq returned {res.status_code}")
+        cover_letter = res.json()["choices"][0]["message"]["content"].strip()
+        return {"cover_letter": cover_letter}
+    except httpx.TimeoutException:
+        raise HTTPException(504, "Cover letter generation timed out.")
+
 # ── Job Feed ──────────────────────────────────────────────────────────────────
 @app.get("/api/v1/jobs/feed")
 async def jobs_feed(
