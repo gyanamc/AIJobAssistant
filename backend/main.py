@@ -235,17 +235,35 @@ async def jobs_feed(
     # Always use simple random query — vector search requires Ollama which is not on Railway
     try:
         with engine.connect() as conn:
+            # Discover actual columns to build a safe SELECT
+            col_rows = conn.execute(text("""
+                SELECT column_name FROM information_schema.columns
+                WHERE table_name = 'job_listings'
+            """)).fetchall()
+            cols = {r[0] for r in col_rows}
+
+            # Build select list from available columns
+            select_parts = ["id", "title"]
+            for c in ["company", "location", "source", "description", "apply_url"]:
+                select_parts.append(c if c in cols else f"NULL AS {c}")
+            # excerpt: derive from description if not present
+            if "excerpt" in cols:
+                select_parts.append("excerpt")
+            else:
+                select_parts.append("LEFT(description, 200) AS excerpt" if "description" in cols else "NULL AS excerpt")
+            select_parts.append("70 AS match_score")
+
+            select_sql = ", ".join(select_parts)
+
             if exclude_list:
-                rows = conn.execute(text("""
-                    SELECT id, title, company, location, source, description, excerpt, apply_url,
-                           70 AS match_score
+                rows = conn.execute(text(f"""
+                    SELECT {select_sql}
                     FROM job_listings WHERE id != ALL(:excl)
                     ORDER BY RANDOM() LIMIT :lim
                 """), {"excl": exclude_list, "lim": limit}).fetchall()
             else:
-                rows = conn.execute(text("""
-                    SELECT id, title, company, location, source, description, excerpt, apply_url,
-                           70 AS match_score
+                rows = conn.execute(text(f"""
+                    SELECT {select_sql}
                     FROM job_listings ORDER BY RANDOM() LIMIT :lim
                 """), {"lim": limit}).fetchall()
     except Exception as e:
