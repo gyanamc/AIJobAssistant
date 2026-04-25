@@ -4,53 +4,72 @@ import {
   TouchableOpacity, Linking,
 } from 'react-native';
 import MatchScoreBadge from '../components/MatchScoreBadge';
+import { C, T, R, S, SHADOW } from '../theme';
 
 export default function JobDetailSheet({ route, navigation }: any) {
   const { job } = route.params;
+  const sourceLabel = job.source === 'linkedin' ? 'LinkedIn' : 'Naukri';
 
   return (
     <View style={styles.container}>
+      {/* Handle */}
       <View style={styles.handle} />
-      <ScrollView contentContainerStyle={styles.content}>
-        <View style={styles.header}>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.title}>{job.title}</Text>
-            <Text style={styles.company}>{job.company}</Text>
+
+      <ScrollView
+        contentContainerStyle={styles.content}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* Header */}
+        <View style={styles.headerCard}>
+          <View style={styles.headerTop}>
+            <Text style={styles.company} numberOfLines={1}>{job.company}</Text>
+            <MatchScoreBadge score={job.match_score} />
           </View>
-          <MatchScoreBadge score={job.match_score} />
+          <Text style={styles.title} numberOfLines={3}>{job.title}</Text>
+
+          {/* Meta */}
+          <View style={styles.metaRow}>
+            <View style={styles.chip}>
+              <Text style={styles.chipText}>{job.location || 'Remote'}</Text>
+            </View>
+            <View style={styles.chipDot} />
+            <View style={styles.chip}>
+              <Text style={styles.chipText}>{sourceLabel}</Text>
+            </View>
+          </View>
         </View>
 
-        <View style={styles.meta}>
-          <Text style={styles.metaText}>📍 {job.location || 'Remote'}</Text>
-          <Text style={styles.metaText}>🔗 {job.source}</Text>
-        </View>
-
-        <Text style={styles.sectionLabel}>Job Description</Text>
+        {/* Description */}
+        <Text style={styles.sectionLabel}>Description</Text>
         <Text style={styles.description}>{job.description}</Text>
 
-        <TouchableOpacity
-          style={styles.externalBtn}
-          onPress={() => Linking.openURL(job.apply_url)}
-        >
-          <Text style={styles.externalText}>View Original Posting ↗</Text>
-        </TouchableOpacity>
+        {/* External link */}
+        {!!job.apply_url && (
+          <TouchableOpacity
+            style={styles.externalBtn}
+            onPress={() => Linking.openURL(job.apply_url)}
+          >
+            <Text style={styles.externalText}>View Original Posting ↗</Text>
+          </TouchableOpacity>
+        )}
       </ScrollView>
 
-      <View style={styles.actions}>
+      {/* Fixed action bar */}
+      <View style={styles.actionBar}>
         <TouchableOpacity
-          style={[styles.actionBtn, styles.skipBtn]}
-          onPress={() => { navigation.goBack(); }}
+          style={styles.skipBtn}
+          onPress={() => navigation.goBack()}
         >
           <Text style={styles.skipText}>Skip</Text>
         </TouchableOpacity>
         <TouchableOpacity
-          style={[styles.actionBtn, styles.applyBtn]}
+          style={styles.applyBtn}
           onPress={() => {
             navigation.goBack();
             navigation.navigate('HILReview', { job, autoApply: false });
           }}
         >
-          <Text style={styles.applyText}>Apply</Text>
+          <Text style={styles.applyText}>Apply Now</Text>
         </TouchableOpacity>
       </View>
     </View>
@@ -58,22 +77,136 @@ export default function JobDetailSheet({ route, navigation }: any) {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0f172a' },
-  handle: { width: 40, height: 4, backgroundColor: '#334155', borderRadius: 2, alignSelf: 'center', marginTop: 12, marginBottom: 8 },
-  content: { padding: 20, paddingBottom: 40 },
-  header: { flexDirection: 'row', alignItems: 'flex-start', gap: 12, marginBottom: 12 },
-  title: { fontSize: 20, fontWeight: '700', color: '#f1f5f9', marginBottom: 4 },
-  company: { fontSize: 14, color: '#94a3b8' },
-  meta: { flexDirection: 'row', gap: 16, marginBottom: 20 },
-  metaText: { fontSize: 13, color: '#64748b' },
-  sectionLabel: { fontSize: 13, fontWeight: '600', color: '#64748b', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 },
-  description: { fontSize: 15, color: '#cbd5e1', lineHeight: 22, marginBottom: 24 },
-  externalBtn: { paddingVertical: 10 },
-  externalText: { color: '#22c55e', fontSize: 14 },
-  actions: { flexDirection: 'row', gap: 12, padding: 20, borderTopWidth: 1, borderTopColor: '#1e293b' },
-  actionBtn: { flex: 1, paddingVertical: 14, borderRadius: 12, alignItems: 'center' },
-  skipBtn: { backgroundColor: '#1e293b' },
-  applyBtn: { backgroundColor: '#22c55e' },
-  skipText: { color: '#94a3b8', fontWeight: '600' },
-  applyText: { color: '#fff', fontWeight: '700' },
+  container: {
+    flex: 1,
+    backgroundColor: C.bg,
+  },
+  handle: {
+    width: 36,
+    height: 3,
+    backgroundColor: C.surface3,
+    borderRadius: R.pill,
+    alignSelf: 'center',
+    marginTop: 10,
+    marginBottom: S.lg,
+  },
+  content: {
+    paddingHorizontal: S.xl,
+    paddingBottom: S.xxxl,
+  },
+
+  // Header card
+  headerCard: {
+    backgroundColor: C.surface2,
+    borderRadius: R.lg,
+    padding: S.lg,
+    borderWidth: 1,
+    borderColor: C.border,
+    marginBottom: S.xl,
+    ...SHADOW.subtle,
+  },
+  headerTop: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: S.xs,
+  },
+  company: {
+    fontSize: T.xs + 1,
+    fontWeight: T.medium,
+    color: C.textSub,
+    flex: 1,
+    marginRight: S.sm,
+    letterSpacing: 0.3,
+  },
+  title: {
+    fontSize: T.xl,
+    fontWeight: T.bold,
+    color: C.text,
+    lineHeight: T.xl * 1.3,
+    marginBottom: S.md,
+  },
+  metaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: S.xs,
+  },
+  chip: {
+    paddingHorizontal: S.sm,
+    paddingVertical: 3,
+    borderRadius: R.pill,
+    backgroundColor: C.surface3,
+  },
+  chipText: {
+    fontSize: T.xs,
+    color: C.textSub,
+    fontWeight: T.medium,
+  },
+  chipDot: {
+    width: 3,
+    height: 3,
+    borderRadius: 2,
+    backgroundColor: C.textDim,
+  },
+
+  // Description
+  sectionLabel: {
+    fontSize: T.xs,
+    fontWeight: T.bold,
+    color: C.textSub,
+    textTransform: 'uppercase',
+    letterSpacing: 1.2,
+    marginBottom: S.sm,
+  },
+  description: {
+    fontSize: T.base,
+    color: C.textSub,
+    lineHeight: T.loose,
+    marginBottom: S.xl,
+  },
+  externalBtn: {
+    paddingVertical: S.sm,
+  },
+  externalText: {
+    color: C.accent,
+    fontSize: T.sm,
+    fontWeight: T.medium,
+  },
+
+  // Action bar
+  actionBar: {
+    flexDirection: 'row',
+    gap: S.md,
+    padding: S.xl,
+    paddingBottom: 32,
+    borderTopWidth: 1,
+    borderTopColor: C.borderSub,
+    backgroundColor: C.bg,
+  },
+  skipBtn: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: R.pill,
+    borderWidth: 1,
+    borderColor: C.border,
+    alignItems: 'center',
+  },
+  applyBtn: {
+    flex: 2,
+    paddingVertical: 14,
+    borderRadius: R.pill,
+    backgroundColor: C.accent,
+    alignItems: 'center',
+    ...SHADOW.subtle,
+  },
+  skipText: {
+    color: C.textSub,
+    fontSize: T.base,
+    fontWeight: T.semibold,
+  },
+  applyText: {
+    color: C.black,
+    fontSize: T.base,
+    fontWeight: T.bold,
+  },
 });

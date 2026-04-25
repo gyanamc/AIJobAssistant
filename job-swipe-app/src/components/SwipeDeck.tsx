@@ -16,8 +16,9 @@ import Animated, {
   interpolateColor,
   SharedValue,
 } from 'react-native-reanimated';
+import { C } from '../theme';
 
-const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const SWIPE_THRESHOLD = SCREEN_WIDTH * 0.35;
 
 interface Props<T> {
@@ -26,6 +27,7 @@ interface Props<T> {
   onSwipedRight: (index: number) => void;
   onSwipedLeft: (index: number) => void;
   disabled?: boolean;
+  keyExtractor?: (card: T, index: number) => string;
 }
 
 function SwipeCard<T>({
@@ -54,23 +56,23 @@ function SwipeCard<T>({
     onActive: (event) => {
       if (!isTop || disabled) return;
       translateX.value = event.translationX;
-      translateY.value = event.translationY * 0.2;
+      translateY.value = event.translationY * 0.15;
       activeTranslateX.value = event.translationX;
     },
     onEnd: (event) => {
       if (!isTop || disabled) return;
       if (event.translationX > SWIPE_THRESHOLD) {
-        translateX.value = withTiming(SCREEN_WIDTH * 1.5, { duration: 250 });
-        activeTranslateX.value = withTiming(0, { duration: 250 });
+        translateX.value = withTiming(SCREEN_WIDTH * 1.5, { duration: 240 });
+        activeTranslateX.value = withTiming(0, { duration: 240 });
         runOnJS(onSwipedRight)(index);
       } else if (event.translationX < -SWIPE_THRESHOLD) {
-        translateX.value = withTiming(-SCREEN_WIDTH * 1.5, { duration: 250 });
-        activeTranslateX.value = withTiming(0, { duration: 250 });
+        translateX.value = withTiming(-SCREEN_WIDTH * 1.5, { duration: 240 });
+        activeTranslateX.value = withTiming(0, { duration: 240 });
         runOnJS(onSwipedLeft)(index);
       } else {
-        translateX.value = withSpring(0);
-        translateY.value = withSpring(0);
-        activeTranslateX.value = withSpring(0);
+        translateX.value = withSpring(0, { damping: 18, stiffness: 180 });
+        translateY.value = withSpring(0, { damping: 18, stiffness: 180 });
+        activeTranslateX.value = withSpring(0, { damping: 18, stiffness: 180 });
       }
     },
   });
@@ -79,7 +81,7 @@ function SwipeCard<T>({
     const rotate = interpolate(
       translateX.value,
       [-SCREEN_WIDTH, 0, SCREEN_WIDTH],
-      [-15, 0, 15],
+      [-12, 0, 12],
       Extrapolate.CLAMP,
     );
     return {
@@ -91,22 +93,23 @@ function SwipeCard<T>({
     };
   });
 
+  // Overlay opacities — fade in only after 20% drag
   const applyOpacity = useAnimatedStyle(() => ({
-    opacity: interpolate(translateX.value, [0, SWIPE_THRESHOLD], [0, 1], Extrapolate.CLAMP),
+    opacity: interpolate(translateX.value, [20, SWIPE_THRESHOLD * 0.7], [0, 1], Extrapolate.CLAMP),
   }));
 
   const skipOpacity = useAnimatedStyle(() => ({
-    opacity: interpolate(translateX.value, [-SWIPE_THRESHOLD, 0], [1, 0], Extrapolate.CLAMP),
+    opacity: interpolate(translateX.value, [-20, -SWIPE_THRESHOLD * 0.7], [0, 1], Extrapolate.CLAMP),
   }));
 
-  const scale = useAnimatedStyle(() => ({
-    transform: [{ scale: isTop ? 1 : 0.95 }],
-    opacity: withTiming(isTop ? 1 : 0.85, { duration: 200 }),
+  const backCardStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: isTop ? 1 : 0.97 }],
+    opacity: withTiming(isTop ? 1 : 0.75, { duration: 180 }),
   }));
 
   return (
     <PanGestureHandler onGestureEvent={gestureHandler} enabled={isTop && !disabled}>
-      <Animated.View style={[styles.cardContainer, animatedStyle, !isTop && scale]}>
+      <Animated.View style={[styles.cardContainer, animatedStyle, !isTop && backCardStyle]}>
         {/* APPLY overlay */}
         <Animated.View style={[styles.overlay, styles.applyOverlay, applyOpacity]}>
           <Animated.Text style={styles.applyLabel}>APPLY</Animated.Text>
@@ -128,18 +131,15 @@ export default function SwipeDeck<T>({
   onSwipedLeft,
   disabled,
 }: Props<T>) {
-  // Shared state connecting the active swipe translation to the screen background
   const activeTranslateX = useSharedValue(0);
 
-  const backgroundStyle = useAnimatedStyle(() => {
-    return {
-      backgroundColor: interpolateColor(
-        activeTranslateX.value,
-        [-SWIPE_THRESHOLD, 0, SWIPE_THRESHOLD],
-        ['rgba(239, 68, 68, 0.3)', 'transparent', 'rgba(34, 197, 94, 0.3)']
-      ),
-    };
-  });
+  const backgroundStyle = useAnimatedStyle(() => ({
+    backgroundColor: interpolateColor(
+      activeTranslateX.value,
+      [-SWIPE_THRESHOLD, 0, SWIPE_THRESHOLD],
+      ['rgba(255, 59, 48, 0.18)', 'transparent', 'rgba(0, 200, 150, 0.18)'],
+    ),
+  }));
 
   return (
     <View style={styles.deckWrapper}>
@@ -164,16 +164,39 @@ export default function SwipeDeck<T>({
 }
 
 const styles = StyleSheet.create({
-  deckWrapper: { flex: 1, position: 'relative' },
-  fullScreenBackground: {
-    ...StyleSheet.absoluteFillObject,
-    zIndex: -1,
+  deckWrapper:          { flex: 1, position: 'relative' },
+  fullScreenBackground: { ...StyleSheet.absoluteFillObject, zIndex: -1 },
+  deck:                 { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  cardContainer:        { position: 'absolute', width: SCREEN_WIDTH - 32 },
+  overlay: {
+    position: 'absolute',
+    top: 18,
+    zIndex: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 6,
+    borderWidth: 2,
   },
-  deck: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  cardContainer: { position: 'absolute', width: SCREEN_WIDTH - 32 },
-  overlay: { position: 'absolute', top: 20, zIndex: 10, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8, borderWidth: 3 },
-  applyOverlay: { left: 20, borderColor: '#22c55e', backgroundColor: 'rgba(34,197,94,0.15)' },
-  skipOverlay: { right: 20, borderColor: '#ef4444', backgroundColor: 'rgba(239,68,68,0.15)' },
-  applyLabel: { color: '#22c55e', fontSize: 24, fontWeight: '800' },
-  skipLabel: { color: '#ef4444', fontSize: 24, fontWeight: '800' },
+  applyOverlay: {
+    left: 18,
+    borderColor: C.accent,
+    backgroundColor: C.accentDim,
+  },
+  skipOverlay: {
+    right: 18,
+    borderColor: C.red,
+    backgroundColor: C.redDim,
+  },
+  applyLabel: {
+    color: C.accent,
+    fontSize: 14,
+    fontWeight: '800',
+    letterSpacing: 1.5,
+  },
+  skipLabel: {
+    color: C.red,
+    fontSize: 14,
+    fontWeight: '800',
+    letterSpacing: 1.5,
+  },
 });

@@ -1,5 +1,6 @@
 import React from 'react';
 import { View, ActivityIndicator, Text, StyleSheet } from 'react-native';
+import { C, T } from '../theme';
 
 interface Props {
   visible: boolean;
@@ -10,8 +11,10 @@ export default function LoadingOverlay({ visible, message }: Props) {
   if (!visible) return null;
   return (
     <View style={styles.overlay}>
-      <ActivityIndicator size="large" color="#22c55e" />
-      {message ? <Text style={styles.text}>{message}</Text> : null}
+      <View style={styles.card}>
+        <ActivityIndicator size="small" color={C.accent} />
+        {message ? <Text style={styles.text}>{message}</Text> : null}
+      </View>
     </View>
   );
 }
@@ -19,14 +22,25 @@ export default function LoadingOverlay({ visible, message }: Props) {
 const styles = StyleSheet.create({
   overlay: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.65)',
+    backgroundColor: 'rgba(6,10,14,0.85)',
+    zIndex: 999,
     justifyContent: 'center',
     alignItems: 'center',
-    zIndex: 999,
+  },
+  card: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    backgroundColor: 'rgba(20,28,36,0.95)',
+    borderRadius: 12,
+    paddingHorizontal: 20,
+    paddingVertical: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.06)',
   },
   text: {
-    color: '#f1f5f9',
-    marginTop: 14,
-    fontSize: 15,
+    color: C.textSub,
+    fontSize: T.sm,
+    fontWeight: T.medium,
   },
 });

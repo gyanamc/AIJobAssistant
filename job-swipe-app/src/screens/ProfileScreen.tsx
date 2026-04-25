@@ -12,6 +12,7 @@ import { syncProfile } from '../api/profileApi';
 import { useToast } from '../hooks/useToast';
 import Toast from '../components/Toast';
 import type { ResumeSummary, UserPreferences } from '../types';
+import { C, T, R, S, SHADOW } from '../theme';
 
 const THRESHOLD_OPTIONS = [70, 75, 80, 85, 90, 95];
 
@@ -31,9 +32,7 @@ export default function ProfileScreen() {
   const [locations, setLocations] = useState('');
   const [loading, setLoading] = useState(false);
 
-  useEffect(() => {
-    loadData();
-  }, []);
+  useEffect(() => { loadData(); }, []);
 
   async function loadData() {
     const [storedResume, storedPrefs] = await Promise.all([
@@ -60,11 +59,11 @@ export default function ProfileScreen() {
         type: result.type ?? 'application/pdf',
         size: result.size ?? 0,
       });
-      const withTimestamp: ResumeSummary = { ...summary, synced_at: new Date().toISOString() };
-      await setItem(KEYS.RESUME_SUMMARY, withTimestamp);
-      setResume(withTimestamp);
-      try { await syncProfile(withTimestamp, prefs); } catch (_) {}
-      showToast(`Resume updated: ${summary.name}`);
+      const ts: ResumeSummary = { ...summary, synced_at: new Date().toISOString() };
+      await setItem(KEYS.RESUME_SUMMARY, ts);
+      setResume(ts);
+      try { await syncProfile(ts, prefs); } catch (_) {}
+      showToast('Resume updated');
     } catch (err: any) {
       if (!DocumentPicker.isCancel(err)) showToast('Upload failed', 'error');
     } finally {
@@ -80,132 +79,152 @@ export default function ProfileScreen() {
     };
     await setItem(KEYS.PREFERENCES, updated);
     setPrefs(updated);
-    if (resume) {
-      try { await syncProfile(resume, updated); } catch (_) {}
-    }
-    showToast('Preferences updated');
-  }
-
-  async function handleSignOut() {
-    Alert.alert('Sign Out', 'Your drafts and swipe history will be kept.', [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'Sign Out', style: 'destructive', onPress: () => signOut() },
-    ]);
-  }
-
-  async function handleResetHistory() {
-    Alert.alert('Reset Swipe History', 'This will clear all swiped jobs and refresh your feed.', [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'Reset', style: 'destructive', onPress: () => resetHistory() },
-    ]);
+    if (resume) { try { await syncProfile(resume, updated); } catch (_) {} }
+    showToast('Preferences saved');
   }
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+    <ScrollView style={styles.container} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
       <Toast message={toast?.message ?? ''} type={toast?.type} visible={!!toast} onDismiss={hideToast} />
-      <Text style={styles.header}>Profile</Text>
+      <Text style={styles.pageTitle}>Profile</Text>
 
-      {/* Auth section */}
-      {isAuthenticated && session ? (
-        <View style={styles.authCard}>
-          <Text style={styles.authName}>{session.email}</Text>
-          <TouchableOpacity onPress={handleSignOut}>
-            <Text style={styles.signOutText}>Sign Out</Text>
-          </TouchableOpacity>
-        </View>
-      ) : (
-        <Text style={styles.notSignedIn}>Not signed in — sign in when applying to save applications.</Text>
-      )}
+      {/* Account */}
+      <Text style={styles.sectionLabel}>Account</Text>
+      <View style={styles.group}>
+        {isAuthenticated && session ? (
+          <>
+            <View style={styles.row}>
+              <Text style={styles.rowLabel}>Signed in as</Text>
+              <Text style={styles.rowValue} numberOfLines={1}>{session.email}</Text>
+            </View>
+            <View style={styles.sep} />
+            <TouchableOpacity style={styles.row} onPress={() => Alert.alert('Sign Out', 'Your data stays on device.', [
+              { text: 'Cancel', style: 'cancel' },
+              { text: 'Sign Out', style: 'destructive', onPress: () => signOut() },
+            ])}>
+              <Text style={[styles.rowLabel, { color: C.red }]}>Sign Out</Text>
+            </TouchableOpacity>
+          </>
+        ) : (
+          <View style={styles.row}>
+            <Text style={styles.rowLabel}>Not signed in</Text>
+            <Text style={styles.rowValue}>Sign in when applying</Text>
+          </View>
+        )}
+      </View>
 
       {/* Resume */}
       <Text style={styles.sectionLabel}>Resume</Text>
-      {resume && (
-        <View style={styles.resumeCard}>
-          <Text style={styles.resumeName}>{resume.name || 'Resume uploaded'}</Text>
-          <Text style={styles.resumeMeta}>
-            {resume.skills.slice(0, 4).join(', ')}{resume.skills.length > 4 ? '…' : ''}
+      <View style={styles.group}>
+        {resume && (
+          <>
+            <View style={styles.row}>
+              <Text style={styles.rowLabel}>{resume.name || 'Resume'}</Text>
+              <View style={styles.greenDot} />
+            </View>
+            {resume.skills.length > 0 && (
+              <>
+                <View style={styles.sep} />
+                <View style={[styles.row, { flexWrap: 'wrap', gap: 6 }]}>
+                  {resume.skills.slice(0, 4).map((s, i) => (
+                    <View key={i} style={styles.chip}><Text style={styles.chipText}>{s}</Text></View>
+                  ))}
+                  {resume.skills.length > 4 && <Text style={styles.chipMore}>+{resume.skills.length - 4}</Text>}
+                </View>
+              </>
+            )}
+            <View style={styles.sep} />
+          </>
+        )}
+        <TouchableOpacity style={styles.row} onPress={handleResumeUpload} disabled={loading}>
+          <Text style={[styles.rowLabel, { color: C.accent }]}>
+            {loading ? 'Parsing…' : resume ? 'Re-upload Resume' : 'Upload Resume'}
           </Text>
-        </View>
-      )}
-      <TouchableOpacity style={styles.uploadBtn} onPress={handleResumeUpload} disabled={loading}>
-        <Text style={styles.uploadText}>{loading ? 'Parsing…' : resume ? 'Re-upload Resume' : 'Upload Resume'}</Text>
-      </TouchableOpacity>
+        </TouchableOpacity>
+      </View>
 
       {/* Preferences */}
-      <Text style={styles.sectionLabel}>Target Roles</Text>
-      <TextInput
-        style={styles.input}
-        value={targetRoles}
-        onChangeText={setTargetRoles}
-        placeholder="e.g. Software Engineer, ML Engineer"
-        placeholderTextColor="#64748b"
-      />
+      <Text style={styles.sectionLabel}>Job Preferences</Text>
+      <View style={styles.group}>
+        <View style={styles.inputRow}>
+          <Text style={styles.inputLabel}>Target Roles</Text>
+          <TextInput style={styles.input} value={targetRoles} onChangeText={setTargetRoles}
+            placeholder="e.g. Software Engineer, ML Engineer" placeholderTextColor={C.textDim} />
+        </View>
+        <View style={styles.sep} />
+        <View style={styles.inputRow}>
+          <Text style={styles.inputLabel}>Locations</Text>
+          <TextInput style={styles.input} value={locations} onChangeText={setLocations}
+            placeholder="e.g. Bangalore, Remote" placeholderTextColor={C.textDim} />
+        </View>
+      </View>
 
-      <Text style={styles.sectionLabel}>Preferred Locations</Text>
-      <TextInput
-        style={styles.input}
-        value={locations}
-        onChangeText={setLocations}
-        placeholder="e.g. Bangalore, Remote"
-        placeholderTextColor="#64748b"
-      />
-
-      {/* AUTO-APPLY threshold */}
-      <Text style={styles.sectionLabel}>
-        AUTO-APPLY Threshold — {prefs.auto_apply_threshold}%
-      </Text>
-      <Text style={styles.thresholdHint}>
-        Jobs scoring at or above this will show the AUTO-APPLY option.
-      </Text>
-      <View style={styles.thresholdRow}>
-        {THRESHOLD_OPTIONS.map(val => (
-          <TouchableOpacity
-            key={val}
-            style={[styles.thresholdBtn, prefs.auto_apply_threshold === val && styles.thresholdActive]}
-            onPress={() => setPrefs(p => ({ ...p, auto_apply_threshold: val }))}
-          >
-            <Text style={[styles.thresholdText, prefs.auto_apply_threshold === val && styles.thresholdTextActive]}>
-              {val}
-            </Text>
-          </TouchableOpacity>
-        ))}
+      {/* Threshold */}
+      <Text style={styles.sectionLabel}>Auto-Apply Threshold</Text>
+      <View style={styles.group}>
+        <View style={[styles.row, { flexDirection: 'column', alignItems: 'flex-start', gap: S.md }]}>
+          <Text style={styles.rowLabel}>
+            Current: <Text style={{ color: C.accent }}>{prefs.auto_apply_threshold}%</Text>
+          </Text>
+          <View style={styles.thresholdRow}>
+            {THRESHOLD_OPTIONS.map(val => (
+              <TouchableOpacity
+                key={val}
+                style={[styles.thresholdChip, prefs.auto_apply_threshold === val && styles.thresholdChipOn]}
+                onPress={() => setPrefs(p => ({ ...p, auto_apply_threshold: val }))}
+              >
+                <Text style={[styles.thresholdText, prefs.auto_apply_threshold === val && styles.thresholdTextOn]}>
+                  {val}%
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </View>
       </View>
 
       <TouchableOpacity style={styles.saveBtn} onPress={handleSavePrefs}>
-        <Text style={styles.saveBtnText}>Save Preferences</Text>
+        <Text style={styles.saveBtnText}>Save Changes</Text>
       </TouchableOpacity>
 
-      {/* Reset history */}
-      <TouchableOpacity style={styles.resetBtn} onPress={handleResetHistory}>
-        <Text style={styles.resetText}>Reset Swipe History</Text>
-      </TouchableOpacity>
+      {/* Danger */}
+      <Text style={styles.sectionLabel}>Danger Zone</Text>
+      <View style={styles.group}>
+        <TouchableOpacity style={styles.row} onPress={() => Alert.alert('Reset History', 'Clears all swiped jobs.', [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Reset', style: 'destructive', onPress: () => resetHistory() },
+        ])}>
+          <Text style={[styles.rowLabel, { color: C.red }]}>Reset Swipe History</Text>
+        </TouchableOpacity>
+      </View>
+
+      <Text style={styles.footerText}>AntiGravity · v3.0</Text>
     </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0f172a' },
-  content: { padding: 20, paddingTop: 56, paddingBottom: 60 },
-  header: { fontSize: 22, fontWeight: '800', color: '#f1f5f9', marginBottom: 24 },
-  authCard: { backgroundColor: '#1e293b', borderRadius: 12, padding: 16, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 },
-  authName: { color: '#f1f5f9', fontSize: 15 },
-  signOutText: { color: '#ef4444', fontSize: 14, fontWeight: '600' },
-  notSignedIn: { color: '#64748b', fontSize: 14, marginBottom: 24 },
-  sectionLabel: { fontSize: 13, fontWeight: '600', color: '#64748b', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8, marginTop: 20 },
-  resumeCard: { backgroundColor: '#1e293b', borderRadius: 10, padding: 12, marginBottom: 10 },
-  resumeName: { color: '#f1f5f9', fontWeight: '600', marginBottom: 4 },
-  resumeMeta: { color: '#94a3b8', fontSize: 13 },
-  uploadBtn: { backgroundColor: '#334155', paddingVertical: 12, borderRadius: 10, alignItems: 'center', marginBottom: 4 },
-  uploadText: { color: '#f1f5f9', fontWeight: '600' },
-  input: { backgroundColor: '#1e293b', color: '#f1f5f9', borderRadius: 10, padding: 12, fontSize: 15 },
-  thresholdHint: { color: '#64748b', fontSize: 13, marginBottom: 10 },
-  thresholdRow: { flexDirection: 'row', gap: 8, flexWrap: 'wrap', marginBottom: 4 },
-  thresholdBtn: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 8, backgroundColor: '#1e293b' },
-  thresholdActive: { backgroundColor: '#22c55e' },
-  thresholdText: { color: '#94a3b8', fontWeight: '600' },
-  thresholdTextActive: { color: '#fff' },
-  saveBtn: { backgroundColor: '#22c55e', paddingVertical: 14, borderRadius: 12, alignItems: 'center', marginTop: 24 },
-  saveBtnText: { color: '#fff', fontWeight: '700', fontSize: 15 },
-  resetBtn: { paddingVertical: 14, alignItems: 'center', marginTop: 12 },
-  resetText: { color: '#ef4444', fontSize: 14 },
+  container: { flex: 1, backgroundColor: C.bg },
+  content:   { paddingTop: 56, paddingHorizontal: S.xl, paddingBottom: 56 },
+  pageTitle: { fontSize: T.xl, fontWeight: T.black_w, color: C.text, marginBottom: S.xl, letterSpacing: -0.3 },
+  sectionLabel: { fontSize: T.xs, fontWeight: T.bold, color: C.textSub, textTransform: 'uppercase', letterSpacing: 1.2, marginBottom: S.sm, marginTop: S.xl },
+  group:  { backgroundColor: C.surface2, borderRadius: R.lg, borderWidth: 1, borderColor: C.border, overflow: 'hidden' },
+  sep:    { height: 1, backgroundColor: C.borderSub, marginHorizontal: S.lg },
+  row:    { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: S.lg, paddingVertical: S.md, gap: S.sm },
+  rowLabel: { fontSize: T.base, color: C.text, fontWeight: T.medium, flex: 1 },
+  rowValue: { fontSize: T.sm, color: C.textSub, maxWidth: '55%', textAlign: 'right' },
+  greenDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: C.accent },
+  chip:    { paddingHorizontal: S.sm, paddingVertical: 3, borderRadius: R.pill, backgroundColor: C.surface3 },
+  chipText:{ fontSize: T.xs, color: C.textSub, fontWeight: T.medium },
+  chipMore:{ fontSize: T.xs, color: C.textDim, alignSelf: 'center' },
+  inputRow: { paddingHorizontal: S.lg, paddingVertical: S.md, gap: S.xs },
+  inputLabel: { fontSize: T.xs, fontWeight: T.bold, color: C.textSub, textTransform: 'uppercase', letterSpacing: 0.8 },
+  input: { color: C.text, fontSize: T.base, paddingVertical: S.xs },
+  thresholdRow: { flexDirection: 'row', gap: S.xs, flexWrap: 'wrap' },
+  thresholdChip: { paddingHorizontal: S.md, paddingVertical: S.xs + 2, borderRadius: R.pill, backgroundColor: C.surface3, borderWidth: 1, borderColor: C.border },
+  thresholdChipOn: { backgroundColor: C.accentDim, borderColor: C.accent },
+  thresholdText: { fontSize: T.sm, color: C.textSub, fontWeight: T.semibold },
+  thresholdTextOn: { color: C.accent },
+  saveBtn: { marginTop: S.xl, paddingVertical: 15, borderRadius: R.pill, backgroundColor: C.accent, alignItems: 'center', ...SHADOW.subtle },
+  saveBtnText: { color: C.black, fontSize: T.base, fontWeight: T.bold },
+  footerText: { textAlign: 'center', fontSize: T.xs, color: C.textDim, marginTop: S.xxl, letterSpacing: 0.5 },
 });

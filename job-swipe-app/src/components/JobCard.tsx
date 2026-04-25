@@ -2,6 +2,7 @@ import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Image } from 'react-native';
 import MatchScoreBadge from './MatchScoreBadge';
 import type { JobCard as JobCardType } from '../types';
+import { C, T, R, S, SHADOW } from '../theme';
 
 interface Props {
   job: JobCardType;
@@ -11,29 +12,46 @@ interface Props {
 }
 
 export default function JobCard({ job, onTap }: Props) {
+  const sourceLabel = job.source === 'linkedin' ? 'LinkedIn' : 'Naukri';
+
   return (
     <TouchableOpacity
       style={styles.card}
       onPress={() => onTap?.(job)}
-      activeOpacity={0.95}
+      activeOpacity={0.97}
     >
-      <View style={styles.header}>
-        <Text style={styles.title} numberOfLines={2}>{job.title}</Text>
+      {/* Top row: company + score badge */}
+      <View style={styles.topRow}>
+        <Text style={styles.company} numberOfLines={1}>{job.company}</Text>
         <MatchScoreBadge score={job.match_score} />
       </View>
 
-      <Text style={styles.company}>{job.company}</Text>
+      {/* Job title */}
+      <Text style={styles.title} numberOfLines={2}>{job.title}</Text>
 
-      <View style={styles.meta}>
-        <Text style={styles.metaText}>📍 {job.location || 'Remote'}</Text>
-        <Text style={styles.metaText}>🔗 {job.source}</Text>
+      {/* Meta chips */}
+      <View style={styles.metaRow}>
+        <View style={styles.chip}>
+          <Text style={styles.chipText}>{job.location || 'Remote'}</Text>
+        </View>
+        <View style={styles.chipDivider} />
+        <View style={styles.chip}>
+          <Text style={styles.chipText}>{sourceLabel}</Text>
+        </View>
       </View>
 
+      {/* Divider */}
+      <View style={styles.divider} />
+
+      {/* Excerpt */}
       <Text style={styles.excerpt} numberOfLines={4}>{job.excerpt}</Text>
 
+      {/* Footer branding */}
       <View style={styles.footer}>
-        <Image source={require('../assets/logo.png')} style={styles.brandingLogo} />
-        <Text style={styles.brandingText}>AntiGravity</Text>
+        <Image source={require('../assets/logo.png')} style={styles.logo} />
+        <Text style={styles.brandText}>AntiGravity</Text>
+        <View style={{ flex: 1 }} />
+        <Text style={styles.tapHint}>Tap for details</Text>
       </View>
     </TouchableOpacity>
   );
@@ -41,62 +59,89 @@ export default function JobCard({ job, onTap }: Props) {
 
 const styles = StyleSheet.create({
   card: {
-    backgroundColor: '#1e293b',
-    borderRadius: 16,
-    padding: 20,
-    marginHorizontal: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 6,
+    backgroundColor: C.surface2,
+    borderRadius: R.lg,
+    padding: S.lg,
+    marginHorizontal: S.lg,
+    borderWidth: 1,
+    borderColor: C.border,
+    ...SHADOW.card,
   },
-  header: {
+  topRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    marginBottom: 6,
-    gap: 8,
-  },
-  title: {
-    flex: 1,
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#f1f5f9',
+    alignItems: 'center',
+    marginBottom: S.xs,
   },
   company: {
-    fontSize: 14,
-    color: '#94a3b8',
-    marginBottom: 10,
+    fontSize: T.xs + 1,
+    fontWeight: T.medium,
+    color: C.textSub,
+    letterSpacing: 0.3,
+    flex: 1,
+    marginRight: S.sm,
   },
-  meta: {
-    flexDirection: 'row',
-    gap: 12,
-    marginBottom: 12,
+  title: {
+    fontSize: T.lg,
+    fontWeight: T.semibold,
+    color: C.text,
+    lineHeight: T.lg * 1.3,
+    marginBottom: S.sm,
   },
-  metaText: {
-    fontSize: 12,
-    color: '#64748b',
-  },
-  excerpt: {
-    fontSize: 14,
-    color: '#cbd5e1',
-    lineHeight: 20,
-  },
-  footer: {
-    marginTop: 16,
+  metaRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: S.xs,
+    marginBottom: S.md,
   },
-  brandingLogo: {
-    width: 20,
-    height: 20,
+  chip: {
+    paddingHorizontal: S.sm,
+    paddingVertical: 3,
+    borderRadius: R.pill,
+    backgroundColor: C.surface3,
+  },
+  chipText: {
+    fontSize: T.xs,
+    color: C.textSub,
+    fontWeight: T.medium,
+  },
+  chipDivider: {
+    width: 3,
+    height: 3,
+    borderRadius: 2,
+    backgroundColor: C.textDim,
+  },
+  divider: {
+    height: 1,
+    backgroundColor: C.borderSub,
+    marginBottom: S.md,
+  },
+  excerpt: {
+    fontSize: T.base,
+    color: C.textSub,
+    lineHeight: T.normal,
+    marginBottom: S.md,
+  },
+  footer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: S.xs,
+  },
+  logo: {
+    width: 14,
+    height: 14,
     resizeMode: 'contain',
+    opacity: 0.5,
   },
-  brandingText: {
-    fontSize: 12,
-    color: '#64748b',
-    fontWeight: '600',
+  brandText: {
+    fontSize: T.xs,
+    color: C.textDim,
+    fontWeight: T.semibold,
+    letterSpacing: 0.5,
+  },
+  tapHint: {
+    fontSize: T.xs,
+    color: C.textDim,
+    fontStyle: 'italic',
   },
 });

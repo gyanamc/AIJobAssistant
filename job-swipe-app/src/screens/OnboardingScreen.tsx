@@ -1,7 +1,7 @@
 import React, { useState, useRef } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity,
-  TextInput, Alert, ScrollView, Dimensions, FlatList, Animated,
+  TextInput, ScrollView, Dimensions, FlatList, Animated,
 } from 'react-native';
 import DocumentPicker from 'react-native-document-picker';
 import { setItem, KEYS } from '../utils/storage';
@@ -10,16 +10,37 @@ import { syncProfile } from '../api/profileApi';
 import { useToast } from '../hooks/useToast';
 import Toast from '../components/Toast';
 import type { ResumeSummary, UserPreferences } from '../types';
+import { C, T, R, S, SHADOW } from '../theme';
 
 type Step = 'welcome' | 'resume' | 'preferences';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
-const SPROUT_SLIDES = [
-  { id: '1', title: 'Welcome to AntiGravity!', sub: 'Your AI Agent Job Search companion.\nBuilt to automate the heavy lifting of\nfinding your career.', emoji: '🚀' },
-  { id: '2', title: 'Best Job Matches', sub: 'Receive AI-driven match scores explaining\nwhy a job suits you. AntiGravity can\nautomatically apply to the best fits.', emoji: '🎯' },
-  { id: '3', title: 'You Are in Control', sub: 'Swipe right to apply, left to pass.\nIf the AI match score is low, we utilize a\nHuman-in-the-Loop review beforehand.', emoji: '⚖️' },
-  { id: '4', title: 'Effortless Applying', sub: "When you swipe to apply, our AI agent\ninstantly prepares a highly tailored cover\nletter on your behalf.", emoji: '✍️' },
+const SLIDES = [
+  {
+    id: '1',
+    glyph: '✦',
+    title: 'Welcome to AntiGravity',
+    sub: 'Your AI-powered career companion.\nAutomating the heavy lifting of job search.',
+  },
+  {
+    id: '2',
+    glyph: '◎',
+    title: 'AI Match Scores',
+    sub: 'Every job gets an AI score explaining\nwhy it fits your profile.',
+  },
+  {
+    id: '3',
+    glyph: '⇄',
+    title: 'You're in Control',
+    sub: 'Swipe right to apply, left to pass.\nLow-confidence matches get your review first.',
+  },
+  {
+    id: '4',
+    glyph: '✍',
+    title: 'Instant Cover Letters',
+    sub: 'Swipe to apply and we generate a\ntailored cover letter in seconds.',
+  },
 ];
 
 export default function OnboardingScreen({ navigation }: any) {
@@ -39,18 +60,13 @@ export default function OnboardingScreen({ navigation }: any) {
     const index = Math.round(xOffset / SCREEN_WIDTH);
     if (index !== currentIndex) {
       setCurrentIndex(index);
-      // Trigger fade animation on slide change
-      fadeAnim.setValue(0);
-      Animated.timing(fadeAnim, {
-        toValue: 1,
-        duration: 400,
-        useNativeDriver: true,
-      }).start();
+      fadeAnim.setValue(0.4);
+      Animated.timing(fadeAnim, { toValue: 1, duration: 320, useNativeDriver: true }).start();
     }
   };
 
   const nextSlide = () => {
-    if (currentIndex < SPROUT_SLIDES.length - 1) {
+    if (currentIndex < SLIDES.length - 1) {
       flatListRef.current?.scrollToIndex({ index: currentIndex + 1, animated: true });
     } else {
       setStep('resume');
@@ -72,11 +88,9 @@ export default function OnboardingScreen({ navigation }: any) {
       const withTimestamp: ResumeSummary = { ...summary, synced_at: new Date().toISOString() };
       await setItem(KEYS.RESUME_SUMMARY, withTimestamp);
       setResumeSummary(withTimestamp);
-      showToast(`Resume uploaded: ${summary.name}`);
+      showToast(`Resume parsed — ${summary.name}`);
     } catch (err: any) {
-      if (!DocumentPicker.isCancel(err)) {
-        showToast('Upload failed', 'error');
-      }
+      if (!DocumentPicker.isCancel(err)) showToast('Upload failed', 'error');
     } finally {
       setLoading(false);
     }
@@ -90,29 +104,29 @@ export default function OnboardingScreen({ navigation }: any) {
       onboarding_complete: true,
     };
     await setItem(KEYS.PREFERENCES, prefs);
-
     if (resumeSummary) {
       try { await syncProfile(resumeSummary, prefs); } catch (_) {}
     }
-
     navigation.replace('Main');
   }
 
+  // ── WELCOME SLIDES ────────────────────────────────────────────────────────────
   if (step === 'welcome') {
     return (
-      <View style={styles.sproutContainer}>
+      <View style={styles.screen}>
         <Toast message={toast?.message ?? ''} type={toast?.type} visible={!!toast} onDismiss={hideToast} />
-        {/* Top Header Pill */}
-        <View style={styles.topHeader}>
-          <TouchableOpacity style={styles.loginPill}>
-            <Text style={styles.loginPillText}>Already have an account? Sign in</Text>
+
+        {/* Top pill */}
+        <View style={styles.topBar}>
+          <TouchableOpacity style={styles.signinPill}>
+            <Text style={styles.signinPillText}>Already have an account?  Sign in →</Text>
           </TouchableOpacity>
         </View>
 
         {/* Carousel */}
         <FlatList
           ref={flatListRef}
-          data={SPROUT_SLIDES}
+          data={SLIDES}
           keyExtractor={item => item.id}
           horizontal
           pagingEnabled
@@ -121,131 +135,346 @@ export default function OnboardingScreen({ navigation }: any) {
           scrollEventThrottle={16}
           renderItem={({ item }) => (
             <View style={styles.slide}>
-              <Animated.View style={{ opacity: fadeAnim }}>
-                <View style={styles.graphicPlaceholder}>
-                  <Text style={styles.graphicEmoji}>{item.emoji}</Text>
+              <Animated.View style={{ opacity: fadeAnim, alignItems: 'center' }}>
+                <View style={styles.glyphContainer}>
+                  <Text style={styles.glyph}>{item.glyph}</Text>
                 </View>
                 <Text style={styles.slideTitle}>{item.title}</Text>
-                <Text style={styles.slideSubtitle}>{item.sub}</Text>
+                <Text style={styles.slideSub}>{item.sub}</Text>
               </Animated.View>
             </View>
           )}
         />
 
-        {/* Bottom Section */}
-        <View style={styles.bottomSection}>
-          {/* Pagination Dots */}
-          <View style={styles.pagination}>
-            {SPROUT_SLIDES.map((_, i) => (
+        {/* Bottom controls */}
+        <View style={styles.bottomBar}>
+          {/* Dots */}
+          <View style={styles.dots}>
+            {SLIDES.map((_, i) => (
               <View
                 key={i}
                 style={[styles.dot, i === currentIndex ? styles.dotActive : styles.dotInactive]}
               />
             ))}
           </View>
-
-          {/* Continue Button */}
-          <TouchableOpacity style={styles.sproutBtn} onPress={nextSlide}>
-            <Text style={styles.sproutBtnText}>Continue</Text>
+          <TouchableOpacity style={styles.ctaBtn} onPress={nextSlide}>
+            <Text style={styles.ctaBtnText}>
+              {currentIndex === SLIDES.length - 1 ? 'Get Started' : 'Continue'}
+            </Text>
           </TouchableOpacity>
         </View>
       </View>
     );
   }
 
+  // ── RESUME STEP ───────────────────────────────────────────────────────────────
   if (step === 'resume') {
     return (
-      <View style={styles.sproutContainer}>
+      <View style={styles.screen}>
         <Toast message={toast?.message ?? ''} type={toast?.type} visible={!!toast} onDismiss={hideToast} />
-        <View style={styles.centerContent}>
-          <Text style={styles.slideTitle}>Upload Resume</Text>
-          <Text style={styles.slideSubtitle}>We'll use it to match jobs and{`\n`}generate cover letters.</Text>
-          
-          <TouchableOpacity style={styles.sproutBtn} onPress={handlePickResume} disabled={loading}>
-            <Text style={styles.sproutBtnText}>{loading ? 'Parsing...' : 'Pick PDF or .txt'}</Text>
-          </TouchableOpacity>
-          
-          {resumeSummary && (
-            <Text style={styles.success}>✓ {resumeSummary.name.toUpperCase()} — resume ready</Text>
-          )}
-          
+        <View style={styles.stepContent}>
+          {/* Step label */}
+          <Text style={styles.stepLabel}>Step 1 of 2</Text>
+          <Text style={styles.stepTitle}>Upload Resume</Text>
+          <Text style={styles.stepSub}>
+            We'll match jobs and generate cover letters based on your experience.
+          </Text>
+
+          {/* Upload card */}
           <TouchableOpacity
-            style={styles.skipBtn}
-            onPress={() => setStep(resumeSummary ? 'preferences' : 'preferences')}
+            style={[styles.uploadCard, resumeSummary && styles.uploadCardDone]}
+            onPress={handlePickResume}
+            disabled={loading}
           >
-            <Text style={styles.skipText}>{resumeSummary ? 'Continue →' : 'Skip for now'}</Text>
+            <Text style={styles.uploadIcon}>{resumeSummary ? '✓' : '↑'}</Text>
+            <Text style={styles.uploadCardTitle}>
+              {loading ? 'Parsing…' : resumeSummary ? resumeSummary.name || 'Resume ready' : 'Pick PDF or .txt file'}
+            </Text>
+            {!resumeSummary && (
+              <Text style={styles.uploadCardSub}>PDF · TXT up to 5 MB</Text>
+            )}
+          </TouchableOpacity>
+
+          {/* Skills preview */}
+          {resumeSummary?.skills && resumeSummary.skills.length > 0 && (
+            <View style={styles.skillsRow}>
+              {resumeSummary.skills.slice(0, 5).map((s, i) => (
+                <View key={i} style={styles.skillChip}>
+                  <Text style={styles.skillChipText}>{s}</Text>
+                </View>
+              ))}
+              {resumeSummary.skills.length > 5 && (
+                <Text style={styles.skillsMore}>+{resumeSummary.skills.length - 5} more</Text>
+              )}
+            </View>
+          )}
+        </View>
+
+        {/* Bottom */}
+        <View style={styles.bottomBar}>
+          <TouchableOpacity
+            style={styles.ctaBtn}
+            onPress={() => setStep('preferences')}
+          >
+            <Text style={styles.ctaBtnText}>{resumeSummary ? 'Continue' : 'Skip for now'}</Text>
           </TouchableOpacity>
         </View>
       </View>
     );
   }
 
+  // ── PREFERENCES STEP ──────────────────────────────────────────────────────────
   return (
-    <ScrollView contentContainerStyle={styles.containerScrollView}>
-      <View style={styles.centerContentPref}>
-        <Text style={styles.slideTitle}>Preferences</Text>
-        <Text style={styles.slideSubtitle}>Tell us what you're looking for so we can{`\n`}find your perfect match.</Text>
-        
-        <Text style={styles.label}>Target Roles (comma-separated)</Text>
-        <TextInput
-          style={styles.input}
-          value={targetRoles}
-          onChangeText={setTargetRoles}
-          placeholder="e.g. Software Engineer, ML Engineer"
-          placeholderTextColor="#4b5563"
-        />
-        
-        <Text style={styles.label}>Preferred Locations</Text>
-        <TextInput
-          style={styles.input}
-          value={locations}
-          onChangeText={setLocations}
-          placeholder="e.g. Bangalore, Remote"
-          placeholderTextColor="#4b5563"
-        />
-      </View>
-      
-      <View style={styles.bottomSection}>
-        <TouchableOpacity style={styles.sproutBtn} onPress={handleFinish}>
-          <Text style={styles.sproutBtnText}>Start Swiping</Text>
-        </TouchableOpacity>
-      </View>
+    <ScrollView
+      style={{ flex: 1, backgroundColor: C.bg }}
+      contentContainerStyle={styles.prefScroll}
+      keyboardShouldPersistTaps="handled"
+    >
+      <Toast message={toast?.message ?? ''} type={toast?.type} visible={!!toast} onDismiss={hideToast} />
+      <Text style={styles.stepLabel}>Step 2 of 2</Text>
+      <Text style={styles.stepTitle}>Your Preferences</Text>
+      <Text style={styles.stepSub}>Tell us what you're looking for so we can find the best matches.</Text>
+
+      <Text style={styles.inputLabel}>Target Roles</Text>
+      <TextInput
+        style={styles.input}
+        value={targetRoles}
+        onChangeText={setTargetRoles}
+        placeholder="e.g. Software Engineer, ML Engineer"
+        placeholderTextColor={C.textDim}
+      />
+      <Text style={styles.inputHint}>Separate multiple roles with commas</Text>
+
+      <Text style={[styles.inputLabel, { marginTop: S.xl }]}>Preferred Locations</Text>
+      <TextInput
+        style={styles.input}
+        value={locations}
+        onChangeText={setLocations}
+        placeholder="e.g. Bangalore, Remote"
+        placeholderTextColor={C.textDim}
+      />
+      <Text style={styles.inputHint}>Separate with commas · Leave blank for all locations</Text>
+
+      <TouchableOpacity style={[styles.ctaBtn, { marginTop: S.xxl }]} onPress={handleFinish}>
+        <Text style={styles.ctaBtnText}>Start Swiping</Text>
+      </TouchableOpacity>
     </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  /* Brand Constants for Sprout */
-  sproutContainer: { flex: 1, backgroundColor: '#0e1212', justifyContent: 'space-between' },
-  containerScrollView: { flexGrow: 1, backgroundColor: '#0e1212', paddingHorizontal: 24, paddingVertical: 40, justifyContent: 'space-between' },
-  
-  /* Top Pill */
-  topHeader: { paddingTop: 60, alignItems: 'center' },
-  loginPill: { backgroundColor: '#1f2937', paddingHorizontal: 24, paddingVertical: 12, borderRadius: 30 },
-  loginPillText: { color: '#d1d5db', fontSize: 15, fontWeight: '600' },
+  screen: {
+    flex: 1,
+    backgroundColor: C.bg,
+    justifyContent: 'space-between',
+  },
 
-  /* Carousels & Slides */
-  slide: { width: SCREEN_WIDTH, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 32 },
-  graphicPlaceholder: { width: 160, height: 160, justifyContent: 'center', alignItems: 'center', marginBottom: 32 },
-  graphicEmoji: { fontSize: 64, opacity: 0.9 },
-  slideTitle: { fontSize: 20, fontWeight: '700', color: '#f9fafb', marginBottom: 16, textAlign: 'center', letterSpacing: 0.3 },
-  slideSubtitle: { fontSize: 15, color: '#9ca3af', textAlign: 'center', lineHeight: 22, paddingHorizontal: 12 },
+  // Top pill
+  topBar: {
+    paddingTop: 56,
+    alignItems: 'center',
+  },
+  signinPill: {
+    backgroundColor: C.surface2,
+    paddingHorizontal: S.xl,
+    paddingVertical: S.sm + 2,
+    borderRadius: R.pill,
+    borderWidth: 1,
+    borderColor: C.border,
+  },
+  signinPillText: {
+    color: C.textSub,
+    fontSize: T.sm,
+    fontWeight: T.medium,
+  },
 
-  /* Bottom Controls */
-  bottomSection: { paddingHorizontal: 24, paddingBottom: 40, alignItems: 'center', width: '100%' },
-  pagination: { flexDirection: 'row', gap: 10, marginBottom: 30 },
-  dot: { width: 8, height: 8, borderRadius: 4 },
-  dotActive: { backgroundColor: '#7dd3a8', width: 10, height: 10, borderRadius: 5, marginTop: -1 },
-  dotInactive: { backgroundColor: '#374151' },
-  sproutBtn: { backgroundColor: '#7dd3a8', width: '100%', paddingVertical: 18, borderRadius: 30, alignItems: 'center' },
-  sproutBtnText: { color: '#0e1212', fontWeight: '800', fontSize: 15 },
+  // Slide
+  slide: {
+    width: SCREEN_WIDTH,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: S.xxl + 4,
+  },
+  glyphContainer: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: C.accentDim,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: S.xl,
+    borderWidth: 1,
+    borderColor: 'rgba(0,200,150,0.2)',
+  },
+  glyph: {
+    fontSize: 32,
+    color: C.accent,
+  },
+  slideTitle: {
+    fontSize: T.xl,
+    fontWeight: T.bold,
+    color: C.text,
+    textAlign: 'center',
+    marginBottom: S.md,
+    letterSpacing: -0.3,
+  },
+  slideSub: {
+    fontSize: T.base,
+    color: C.textSub,
+    textAlign: 'center',
+    lineHeight: T.loose,
+  },
 
-  /* Utilities (from previous views) */
-  centerContent: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 24 },
-  centerContentPref: { flex: 1, justifyContent: 'center', alignItems: 'center', width: '100%' },
-  skipBtn: { marginTop: 24, paddingVertical: 10 },
-  skipText: { color: '#9ca3af', fontSize: 16, fontWeight: '600' },
-  success: { color: '#7dd3a8', marginTop: 16, fontSize: 14, fontWeight: '600', textAlign: 'center' },
-  label: { color: '#d1d5db', fontSize: 14, alignSelf: 'flex-start', marginBottom: 8, marginTop: 16, fontWeight: '600' },
-  input: { backgroundColor: '#1f2937', color: '#f9fafb', borderRadius: 12, padding: 16, width: '100%', fontSize: 16, marginBottom: 8 },
+  // Bottom bar
+  bottomBar: {
+    paddingHorizontal: S.xl,
+    paddingBottom: 44,
+    alignItems: 'center',
+    gap: S.xl,
+  },
+  dots: {
+    flexDirection: 'row',
+    gap: S.xs + 2,
+  },
+  dot: {
+    height: 5,
+    borderRadius: R.pill,
+  },
+  dotActive: {
+    width: 20,
+    backgroundColor: C.accent,
+  },
+  dotInactive: {
+    width: 5,
+    backgroundColor: C.surface3,
+  },
+  ctaBtn: {
+    backgroundColor: C.accent,
+    width: '100%',
+    paddingVertical: 16,
+    borderRadius: R.pill,
+    alignItems: 'center',
+    ...SHADOW.subtle,
+  },
+  ctaBtnText: {
+    color: C.black,
+    fontWeight: T.bold,
+    fontSize: T.base,
+    letterSpacing: 0.2,
+  },
+
+  // Steps
+  stepContent: {
+    flex: 1,
+    paddingHorizontal: S.xl,
+    paddingTop: 72,
+  },
+  prefScroll: {
+    paddingHorizontal: S.xl,
+    paddingTop: 72,
+    paddingBottom: 56,
+  },
+  stepLabel: {
+    fontSize: T.xs,
+    fontWeight: T.bold,
+    color: C.accent,
+    letterSpacing: 1.5,
+    textTransform: 'uppercase',
+    marginBottom: S.sm,
+  },
+  stepTitle: {
+    fontSize: T.xxl,
+    fontWeight: T.black_w,
+    color: C.text,
+    marginBottom: S.sm,
+    letterSpacing: -0.5,
+  },
+  stepSub: {
+    fontSize: T.base,
+    color: C.textSub,
+    lineHeight: T.loose,
+    marginBottom: S.xxl,
+  },
+
+  // Upload card
+  uploadCard: {
+    borderWidth: 1.5,
+    borderColor: C.border,
+    borderStyle: 'dashed',
+    borderRadius: R.lg,
+    padding: S.xl,
+    alignItems: 'center',
+    gap: S.sm,
+    backgroundColor: C.surface,
+    marginBottom: S.lg,
+  },
+  uploadCardDone: {
+    borderColor: C.accent,
+    borderStyle: 'solid',
+    backgroundColor: C.accentDim,
+  },
+  uploadIcon: {
+    fontSize: 28,
+    color: C.textSub,
+  },
+  uploadCardTitle: {
+    fontSize: T.base,
+    fontWeight: T.semibold,
+    color: C.text,
+    textAlign: 'center',
+  },
+  uploadCardSub: {
+    fontSize: T.xs,
+    color: C.textDim,
+  },
+
+  // Skills preview
+  skillsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: S.xs,
+  },
+  skillChip: {
+    paddingHorizontal: S.sm,
+    paddingVertical: 4,
+    borderRadius: R.pill,
+    backgroundColor: C.surface2,
+    borderWidth: 1,
+    borderColor: C.border,
+  },
+  skillChipText: {
+    fontSize: T.xs,
+    color: C.textSub,
+    fontWeight: T.medium,
+  },
+  skillsMore: {
+    fontSize: T.xs,
+    color: C.textDim,
+    alignSelf: 'center',
+  },
+
+  // Inputs
+  inputLabel: {
+    fontSize: T.xs,
+    fontWeight: T.bold,
+    color: C.textSub,
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+    marginBottom: S.sm,
+  },
+  input: {
+    backgroundColor: C.surface,
+    borderWidth: 1,
+    borderColor: C.border,
+    color: C.text,
+    borderRadius: R.md,
+    paddingHorizontal: S.lg,
+    paddingVertical: S.md,
+    fontSize: T.base,
+  },
+  inputHint: {
+    fontSize: T.xs,
+    color: C.textDim,
+    marginTop: S.xs,
+  },
 });

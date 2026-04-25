@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
   View, Text, StyleSheet, TextInput,
-  TouchableOpacity, Alert, ScrollView,
+  TouchableOpacity, ScrollView,
 } from 'react-native';
 import { v4 as uuidv4 } from 'uuid';
 import { generateCoverLetter } from '../api/jobsApi';
@@ -13,6 +13,7 @@ import Toast from '../components/Toast';
 import MatchScoreBadge from '../components/MatchScoreBadge';
 import LoadingOverlay from '../components/LoadingOverlay';
 import type { ResumeSummary, DraftApplication } from '../types';
+import { C, T, R, S, SHADOW } from '../theme';
 
 const TIMEOUT_MS = 30_000;
 
@@ -45,7 +46,7 @@ export default function HILReviewScreen({ route, navigation }: any) {
       });
       if (timeoutRef.current) clearTimeout(timeoutRef.current);
       setCoverLetter(letter);
-    } catch (err: any) {
+    } catch {
       if (timeoutRef.current) clearTimeout(timeoutRef.current);
       setTimedOut(true);
     } finally {
@@ -70,30 +71,36 @@ export default function HILReviewScreen({ route, navigation }: any) {
       if (status === 'auto-applied') markAutoApplied(job.id);
       showToast(status === 'auto-applied' ? 'Auto-applied!' : 'Draft saved');
       navigation.navigate('Main');
-    } catch (err: any) {
-      showToast('Failed to save. Please try again.', 'error');
+    } catch {
+      showToast('Failed to save. Try again.', 'error');
     }
   }
 
   if (timedOut && !coverLetter) {
     return (
       <View style={styles.container}>
-        <Text style={styles.title}>Cover Letter Timed Out</Text>
-        <Text style={styles.subtitle}>The AI took too long. You can write one manually or skip.</Text>
-        <TextInput
-          style={[styles.editor, { height: 200 }]}
-          multiline
-          value={coverLetter}
-          onChangeText={setCoverLetter}
-          placeholder="Write your cover letter here…"
-          placeholderTextColor="#64748b"
-        />
-        <TouchableOpacity style={styles.confirmBtn} onPress={() => handleConfirm('draft')}>
-          <Text style={styles.confirmText}>Save Draft</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.skipBtn} onPress={() => navigation.navigate('Main')}>
-          <Text style={styles.skipText}>Skip Application</Text>
-        </TouchableOpacity>
+        <Toast message={toast?.message ?? ''} type={toast?.type} visible={!!toast} onDismiss={hideToast} />
+        <View style={styles.handle} />
+        <View style={styles.timedOutContent}>
+          <Text style={styles.timedOutLabel}>Generation timed out</Text>
+          <Text style={styles.timedOutSub}>Write your cover letter manually or skip.</Text>
+          <TextInput
+            style={styles.editor}
+            multiline
+            value={coverLetter}
+            onChangeText={setCoverLetter}
+            placeholder="Write your cover letter here…"
+            placeholderTextColor={C.textDim}
+          />
+        </View>
+        <View style={styles.actionBar}>
+          <TouchableOpacity style={styles.secondaryBtn} onPress={() => navigation.navigate('Main')}>
+            <Text style={styles.secondaryBtnText}>Skip</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.primaryBtn} onPress={() => handleConfirm('draft')}>
+            <Text style={styles.primaryBtnText}>Save Draft</Text>
+          </TouchableOpacity>
+        </View>
       </View>
     );
   }
@@ -101,14 +108,30 @@ export default function HILReviewScreen({ route, navigation }: any) {
   return (
     <View style={styles.container}>
       <Toast message={toast?.message ?? ''} type={toast?.type} visible={!!toast} onDismiss={hideToast} />
-      <LoadingOverlay visible={loading} message="Generating your cover letter…" />
-      <ScrollView contentContainerStyle={styles.content}>
-        <View style={styles.jobHeader}>
-          <Text style={styles.jobTitle}>{job.title}</Text>
-          <Text style={styles.jobCompany}>{job.company}</Text>
-          <MatchScoreBadge score={job.match_score} />
+      <LoadingOverlay visible={loading} message="Generating cover letter…" />
+
+      {/* Handle */}
+      <View style={styles.handle} />
+
+      <ScrollView
+        contentContainerStyle={styles.content}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* Job info card */}
+        <View style={styles.jobCard}>
+          <View style={styles.jobCardTop}>
+            <Text style={styles.jobCompany} numberOfLines={1}>{job.company}</Text>
+            <MatchScoreBadge score={job.match_score} />
+          </View>
+          <Text style={styles.jobTitle} numberOfLines={2}>{job.title}</Text>
+          {autoApply && (
+            <View style={styles.autoPill}>
+              <Text style={styles.autoPillText}>⚡ AUTO-APPLY eligible</Text>
+            </View>
+          )}
         </View>
 
+        {/* Cover letter editor */}
         <Text style={styles.sectionLabel}>Cover Letter</Text>
         <TextInput
           style={styles.editor}
@@ -116,24 +139,32 @@ export default function HILReviewScreen({ route, navigation }: any) {
           value={coverLetter}
           onChangeText={setCoverLetter}
           placeholder="Cover letter will appear here…"
-          placeholderTextColor="#64748b"
+          placeholderTextColor={C.textDim}
         />
+        <Text style={styles.editorHint}>You can edit before saving</Text>
       </ScrollView>
 
-      <View style={styles.actions}>
+      {/* Action bar */}
+      <View style={styles.actionBar}>
         {autoApply && (
           <TouchableOpacity
-            style={[styles.actionBtn, styles.autoBtn]}
+            style={styles.autoApplyBtn}
             onPress={() => handleConfirm('auto-applied')}
           >
-            <Text style={styles.autoBtnText}>⚡ AUTO-APPLY</Text>
+            <Text style={styles.autoApplyBtnText}>⚡ Auto-Apply</Text>
           </TouchableOpacity>
         )}
-        <TouchableOpacity style={[styles.actionBtn, styles.confirmBtn]} onPress={() => handleConfirm('draft')}>
-          <Text style={styles.confirmText}>Confirm & Save</Text>
+        <TouchableOpacity
+          style={styles.primaryBtn}
+          onPress={() => handleConfirm('draft')}
+        >
+          <Text style={styles.primaryBtnText}>Save Draft</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.skipBtn} onPress={() => navigation.navigate('Main')}>
-          <Text style={styles.skipText}>Skip</Text>
+        <TouchableOpacity
+          style={styles.secondaryBtn}
+          onPress={() => navigation.navigate('Main')}
+        >
+          <Text style={styles.secondaryBtnText}>Skip</Text>
         </TouchableOpacity>
       </View>
     </View>
@@ -141,21 +172,156 @@ export default function HILReviewScreen({ route, navigation }: any) {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0f172a' },
-  content: { padding: 20, paddingBottom: 40 },
-  jobHeader: { marginBottom: 20, gap: 4 },
-  jobTitle: { fontSize: 18, fontWeight: '700', color: '#f1f5f9' },
-  jobCompany: { fontSize: 14, color: '#94a3b8', marginBottom: 8 },
-  sectionLabel: { fontSize: 13, fontWeight: '600', color: '#64748b', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 },
-  editor: { backgroundColor: '#1e293b', color: '#f1f5f9', borderRadius: 12, padding: 14, fontSize: 15, lineHeight: 22, minHeight: 280, textAlignVertical: 'top' },
-  actions: { padding: 20, gap: 10, borderTopWidth: 1, borderTopColor: '#1e293b' },
-  actionBtn: { paddingVertical: 14, borderRadius: 12, alignItems: 'center' },
-  autoBtn: { backgroundColor: '#7c3aed' },
-  autoBtnText: { color: '#fff', fontWeight: '700', fontSize: 15 },
-  confirmBtn: { backgroundColor: '#22c55e', paddingVertical: 14, borderRadius: 12, alignItems: 'center' },
-  confirmText: { color: '#fff', fontWeight: '700', fontSize: 15 },
-  skipBtn: { alignItems: 'center', paddingVertical: 10 },
-  skipText: { color: '#64748b', fontSize: 14 },
-  title: { fontSize: 22, fontWeight: '700', color: '#f1f5f9', marginBottom: 12, padding: 20, paddingTop: 60 },
-  subtitle: { fontSize: 15, color: '#94a3b8', paddingHorizontal: 20, marginBottom: 20 },
+  container: {
+    flex: 1,
+    backgroundColor: C.bg,
+  },
+  handle: {
+    width: 36,
+    height: 3,
+    backgroundColor: C.surface3,
+    borderRadius: R.pill,
+    alignSelf: 'center',
+    marginTop: 10,
+    marginBottom: S.lg,
+  },
+  content: {
+    paddingHorizontal: S.xl,
+    paddingBottom: S.xxxl,
+  },
+
+  // Job card
+  jobCard: {
+    backgroundColor: C.surface2,
+    borderRadius: R.lg,
+    padding: S.lg,
+    borderWidth: 1,
+    borderColor: C.border,
+    marginBottom: S.xl,
+    gap: S.xs,
+    ...SHADOW.subtle,
+  },
+  jobCardTop: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  jobCompany: {
+    fontSize: T.xs + 1,
+    fontWeight: T.medium,
+    color: C.textSub,
+    flex: 1,
+    marginRight: S.sm,
+    letterSpacing: 0.3,
+  },
+  jobTitle: {
+    fontSize: T.lg,
+    fontWeight: T.semibold,
+    color: C.text,
+    lineHeight: T.lg * 1.35,
+    marginTop: S.xs,
+  },
+  autoPill: {
+    alignSelf: 'flex-start',
+    marginTop: S.sm,
+    paddingHorizontal: S.sm,
+    paddingVertical: 3,
+    borderRadius: R.pill,
+    backgroundColor: 'rgba(124,58,237,0.15)',
+    borderWidth: 1,
+    borderColor: 'rgba(124,58,237,0.3)',
+  },
+  autoPillText: {
+    fontSize: T.xs,
+    fontWeight: T.bold,
+    color: '#A78BFA',
+    letterSpacing: 0.3,
+  },
+
+  // Editor
+  sectionLabel: {
+    fontSize: T.xs,
+    fontWeight: T.bold,
+    color: C.textSub,
+    textTransform: 'uppercase',
+    letterSpacing: 1.2,
+    marginBottom: S.sm,
+  },
+  editor: {
+    backgroundColor: C.surface,
+    borderWidth: 1,
+    borderColor: C.border,
+    color: C.text,
+    borderRadius: R.md,
+    padding: S.lg,
+    fontSize: T.base,
+    lineHeight: T.loose,
+    minHeight: 260,
+    textAlignVertical: 'top',
+  },
+  editorHint: {
+    fontSize: T.xs,
+    color: C.textDim,
+    marginTop: S.xs,
+  },
+
+  // Action bar
+  actionBar: {
+    gap: S.sm,
+    padding: S.xl,
+    paddingBottom: 32,
+    borderTopWidth: 1,
+    borderTopColor: C.borderSub,
+  },
+  autoApplyBtn: {
+    paddingVertical: 14,
+    borderRadius: R.pill,
+    backgroundColor: 'rgba(124,58,237,0.2)',
+    borderWidth: 1,
+    borderColor: 'rgba(124,58,237,0.4)',
+    alignItems: 'center',
+  },
+  autoApplyBtnText: {
+    color: '#A78BFA',
+    fontSize: T.base,
+    fontWeight: T.bold,
+  },
+  primaryBtn: {
+    paddingVertical: 14,
+    borderRadius: R.pill,
+    backgroundColor: C.accent,
+    alignItems: 'center',
+    ...SHADOW.subtle,
+  },
+  primaryBtnText: {
+    color: C.black,
+    fontSize: T.base,
+    fontWeight: T.bold,
+  },
+  secondaryBtn: {
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  secondaryBtnText: {
+    color: C.textSub,
+    fontSize: T.base,
+    fontWeight: T.medium,
+  },
+
+  // Timed out
+  timedOutContent: {
+    flex: 1,
+    paddingHorizontal: S.xl,
+    gap: S.md,
+  },
+  timedOutLabel: {
+    fontSize: T.lg,
+    fontWeight: T.semibold,
+    color: C.text,
+  },
+  timedOutSub: {
+    fontSize: T.base,
+    color: C.textSub,
+    lineHeight: T.loose,
+  },
 });

@@ -1,5 +1,6 @@
-import React, { useEffect } from 'react';
+import React from 'react';
 import { View, Text, StyleSheet, Animated } from 'react-native';
+import { C, T, R, S, SHADOW } from '../theme';
 
 interface ToastProps {
   message: string;
@@ -10,31 +11,67 @@ interface ToastProps {
 
 export default function Toast({ message, type = 'success', visible, onDismiss }: ToastProps) {
   const opacity = React.useRef(new Animated.Value(0)).current;
+  const translateY = React.useRef(new Animated.Value(-8)).current;
 
-  useEffect(() => {
+  React.useEffect(() => {
     if (visible) {
       Animated.sequence([
-        Animated.timing(opacity, { toValue: 1, duration: 200, useNativeDriver: true }),
-        Animated.delay(3000),
-        Animated.timing(opacity, { toValue: 0, duration: 200, useNativeDriver: true }),
+        Animated.parallel([
+          Animated.timing(opacity,     { toValue: 1, duration: 220, useNativeDriver: true }),
+          Animated.timing(translateY,  { toValue: 0, duration: 220, useNativeDriver: true }),
+        ]),
+        Animated.delay(2800),
+        Animated.parallel([
+          Animated.timing(opacity,     { toValue: 0, duration: 200, useNativeDriver: true }),
+          Animated.timing(translateY,  { toValue: -8, duration: 200, useNativeDriver: true }),
+        ]),
       ]).start(() => onDismiss());
     }
   }, [visible]);
 
   if (!visible) return null;
 
+  const borderColor = type === 'error' ? C.red : C.accent;
+
   return (
-    <Animated.View style={[styles.container, { opacity }]}>
-      <View style={[styles.toast, type === 'error' && styles.toastError]}>
-        <Text style={styles.message}>{message}</Text>
+    <Animated.View style={[styles.container, { opacity, transform: [{ translateY }] }]}>
+      <View style={[styles.toast, { borderColor }]}>
+        <View style={[styles.dot, { backgroundColor: borderColor }]} />
+        <Text style={styles.message} numberOfLines={1}>{message}</Text>
       </View>
     </Animated.View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { position: 'absolute', top: 60, left: 20, right: 20, zIndex: 9999, alignItems: 'center' },
-  toast: { backgroundColor: '#0e1212', borderLeftWidth: 4, borderLeftColor: '#7dd3a8', borderRadius: 12, padding: 16, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 8, elevation: 6 },
-  toastError: { borderLeftColor: '#ef4444' },
-  message: { color: '#f9fafb', fontSize: 15, fontWeight: '600' },
+  container: {
+    position: 'absolute',
+    top: 56,
+    left: S.xl,
+    right: S.xl,
+    zIndex: 9999,
+    alignItems: 'center',
+  },
+  toast: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: S.sm,
+    backgroundColor: C.surface2,
+    borderWidth: 1,
+    borderRadius: R.pill,
+    paddingHorizontal: S.lg,
+    paddingVertical: S.sm + 2,
+    ...SHADOW.elevated,
+  },
+  dot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
+  message: {
+    color: C.text,
+    fontSize: T.sm,
+    fontWeight: T.semibold,
+    flexShrink: 1,
+  },
 });

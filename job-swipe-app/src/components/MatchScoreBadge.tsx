@@ -1,54 +1,56 @@
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
+import { C, T, R, S } from '../theme';
 
 interface Props {
   score: number | null;
 }
 
-export function getScoreColour(score: number): string {
-  if (score >= 80) return '#22c55e'; // green
-  if (score >= 50) return '#eab308'; // yellow
-  return '#ef4444';                  // red
+export function getScoreColour(score: number): { text: string; bg: string } {
+  if (score >= 80) return { text: C.accent,  bg: C.accentDim };
+  if (score >= 55) return { text: C.yellow,  bg: C.yellowDim };
+  return               { text: C.red,    bg: C.redDim };
 }
 
 export default function MatchScoreBadge({ score }: Props) {
-  if (score === null) {
+  if (score === null || score === undefined) {
     return (
       <View style={styles.noScore}>
-        <Text style={styles.noScoreText}>No score — upload resume</Text>
+        <Text style={styles.noScoreText}>—</Text>
       </View>
     );
   }
 
-  const color = getScoreColour(score);
+  const { text, bg } = getScoreColour(score);
   return (
-    <View style={[styles.badge, { backgroundColor: color }]}>
-      <Text style={styles.text}>{score}%</Text>
+    <View style={[styles.badge, { backgroundColor: bg }]}>
+      <Text style={[styles.text, { color: text }]}>{score}%</Text>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   badge: {
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 12,
+    paddingHorizontal: S.sm,
+    paddingVertical: 3,
+    borderRadius: R.pill,
     alignSelf: 'flex-start',
   },
   text: {
-    color: '#fff',
-    fontWeight: '700',
-    fontSize: 13,
+    fontWeight: T.bold,
+    fontSize: T.xs,
+    letterSpacing: 0.3,
   },
   noScore: {
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 12,
-    backgroundColor: '#6b7280',
+    paddingHorizontal: S.sm,
+    paddingVertical: 3,
+    borderRadius: R.pill,
+    backgroundColor: 'rgba(90,100,117,0.18)',
     alignSelf: 'flex-start',
   },
   noScoreText: {
-    color: '#fff',
-    fontSize: 12,
+    color: C.textSub,
+    fontSize: T.xs,
+    fontWeight: T.bold,
   },
 });
