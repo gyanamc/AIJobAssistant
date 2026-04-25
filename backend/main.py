@@ -60,6 +60,10 @@ def init_db():
                 id SERIAL PRIMARY KEY,
                 recruiter_id TEXT NOT NULL,
                 events_used INTEGER DEFAULT 0,
+                unmasked_candidates TEXT DEFAULT '[]',
+                created_at TIMESTAMP DEFAULT NOW()
+            )
+        """))
         conn.execute(text("""
             CREATE TABLE IF NOT EXISTS vetted_matches (
                 id SERIAL PRIMARY KEY,
