@@ -20,7 +20,7 @@ export type RootStackParamList = {
   Onboarding: undefined;
   Main: undefined;
   JobDetail: { job: any };
-  HILReview: { job: any; coverLetter: string };
+  HILReview: { job: any; autoApply: boolean };
   Auth: { pendingJob?: any };
 };
 

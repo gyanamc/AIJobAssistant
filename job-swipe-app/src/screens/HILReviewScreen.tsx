@@ -8,6 +8,8 @@ import { generateCoverLetter } from '../api/jobsApi';
 import { useApplicationStore } from '../store/useApplicationStore';
 import { useJobStore } from '../store/useJobStore';
 import { getItem, KEYS } from '../utils/storage';
+import { useToast } from '../hooks/useToast';
+import Toast from '../components/Toast';
 import MatchScoreBadge from '../components/MatchScoreBadge';
 import LoadingOverlay from '../components/LoadingOverlay';
 import type { ResumeSummary, DraftApplication } from '../types';
@@ -18,6 +20,7 @@ export default function HILReviewScreen({ route, navigation }: any) {
   const { job, autoApply } = route.params;
   const { saveDraft } = useApplicationStore();
   const { markAutoApplied } = useJobStore();
+  const { toast, showToast, hideToast } = useToast();
 
   const [coverLetter, setCoverLetter] = useState('');
   const [loading, setLoading] = useState(true);
@@ -51,21 +54,25 @@ export default function HILReviewScreen({ route, navigation }: any) {
   }
 
   async function handleConfirm(status: 'draft' | 'auto-applied' = 'draft') {
-    const draft: DraftApplication = {
-      id: uuidv4(),
-      job_id: job.id,
-      job_title: job.title,
-      company: job.company,
-      apply_url: job.apply_url,
-      cover_letter: coverLetter,
-      status,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    };
-    await saveDraft(draft);
-    if (status === 'auto-applied') markAutoApplied(job.id);
-    Alert.alert('Saved', status === 'auto-applied' ? 'Auto-applied!' : 'Draft saved.');
-    navigation.navigate('Main');
+    try {
+      const draft: DraftApplication = {
+        id: uuidv4(),
+        job_id: job.id,
+        job_title: job.title,
+        company: job.company,
+        apply_url: job.apply_url,
+        cover_letter: coverLetter,
+        status,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+      await saveDraft(draft);
+      if (status === 'auto-applied') markAutoApplied(job.id);
+      showToast(status === 'auto-applied' ? 'Auto-applied!' : 'Draft saved');
+      navigation.navigate('Main');
+    } catch (err: any) {
+      showToast('Failed to save. Please try again.', 'error');
+    }
   }
 
   if (timedOut && !coverLetter) {
@@ -93,6 +100,7 @@ export default function HILReviewScreen({ route, navigation }: any) {
 
   return (
     <View style={styles.container}>
+      <Toast message={toast?.message ?? ''} type={toast?.type} visible={!!toast} onDismiss={hideToast} />
       <LoadingOverlay visible={loading} message="Generating your cover letter…" />
       <ScrollView contentContainerStyle={styles.content}>
         <View style={styles.jobHeader}>

@@ -19,28 +19,22 @@ export const useApplicationStore = create<ApplicationStore>((set, get) => ({
   },
 
   saveDraft: async (draft: DraftApplication) => {
-    set(state => {
-      const drafts = [draft, ...state.drafts];
-      setItem(KEYS.DRAFT_APPLICATIONS, drafts);
-      return { drafts };
-    });
+    const drafts = [draft, ...get().drafts];
+    set({ drafts });
+    await setItem(KEYS.DRAFT_APPLICATIONS, drafts);
   },
 
   updateDraft: async (id: string, updates: Partial<DraftApplication>) => {
-    set(state => {
-      const drafts = state.drafts.map(d =>
-        d.id === id ? { ...d, ...updates, updated_at: new Date().toISOString() } : d
-      );
-      setItem(KEYS.DRAFT_APPLICATIONS, drafts);
-      return { drafts };
-    });
+    const drafts = get().drafts.map(d =>
+      d.id === id ? { ...d, ...updates, updated_at: new Date().toISOString() } : d
+    );
+    set({ drafts });
+    await setItem(KEYS.DRAFT_APPLICATIONS, drafts);
   },
 
   deleteDraft: async (id: string) => {
-    set(state => {
-      const drafts = state.drafts.filter(d => d.id !== id);
-      setItem(KEYS.DRAFT_APPLICATIONS, drafts);
-      return { drafts };
-    });
+    const drafts = get().drafts.filter(d => d.id !== id);
+    set({ drafts });
+    await setItem(KEYS.DRAFT_APPLICATIONS, drafts);
   },
 }));

@@ -9,6 +9,8 @@ import { useJobStore } from '../store/useJobStore';
 import { getItem, setItem, KEYS } from '../utils/storage';
 import { parseResume } from '../api/resumeApi';
 import { syncProfile } from '../api/profileApi';
+import { useToast } from '../hooks/useToast';
+import Toast from '../components/Toast';
 import type { ResumeSummary, UserPreferences } from '../types';
 
 const THRESHOLD_OPTIONS = [70, 75, 80, 85, 90, 95];
@@ -16,6 +18,7 @@ const THRESHOLD_OPTIONS = [70, 75, 80, 85, 90, 95];
 export default function ProfileScreen() {
   const { session, isAuthenticated, signOut } = useAuthStore();
   const { resetHistory } = useJobStore();
+  const { toast, showToast, hideToast } = useToast();
 
   const [resume, setResume] = useState<ResumeSummary | null>(null);
   const [prefs, setPrefs] = useState<UserPreferences>({
@@ -61,9 +64,9 @@ export default function ProfileScreen() {
       await setItem(KEYS.RESUME_SUMMARY, withTimestamp);
       setResume(withTimestamp);
       try { await syncProfile(withTimestamp, prefs); } catch (_) {}
-      Alert.alert('Resume updated', `Parsed as ${summary.name}`);
+      showToast(`Resume updated: ${summary.name}`);
     } catch (err: any) {
-      if (!DocumentPicker.isCancel(err)) Alert.alert('Upload failed', err.message);
+      if (!DocumentPicker.isCancel(err)) showToast('Upload failed', 'error');
     } finally {
       setLoading(false);
     }
@@ -80,7 +83,7 @@ export default function ProfileScreen() {
     if (resume) {
       try { await syncProfile(resume, updated); } catch (_) {}
     }
-    Alert.alert('Saved', 'Preferences updated.');
+    showToast('Preferences updated');
   }
 
   async function handleSignOut() {
@@ -99,6 +102,7 @@ export default function ProfileScreen() {
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+      <Toast message={toast?.message ?? ''} type={toast?.type} visible={!!toast} onDismiss={hideToast} />
       <Text style={styles.header}>Profile</Text>
 
       {/* Auth section */}

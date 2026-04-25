@@ -101,7 +101,7 @@ function SwipeCard<T>({
 
   const scale = useAnimatedStyle(() => ({
     transform: [{ scale: isTop ? 1 : 0.95 }],
-    opacity: isTop ? 1 : 0,
+    opacity: withTiming(isTop ? 1 : 0.85, { duration: 200 }),
   }));
 
   return (

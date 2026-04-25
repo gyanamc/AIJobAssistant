@@ -1,12 +1,14 @@
 import React, { useState, useRef } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity,
-  TextInput, Alert, ScrollView, Dimensions, FlatList,
+  TextInput, Alert, ScrollView, Dimensions, FlatList, Animated,
 } from 'react-native';
 import DocumentPicker from 'react-native-document-picker';
 import { setItem, KEYS } from '../utils/storage';
 import { parseResume } from '../api/resumeApi';
 import { syncProfile } from '../api/profileApi';
+import { useToast } from '../hooks/useToast';
+import Toast from '../components/Toast';
 import type { ResumeSummary, UserPreferences } from '../types';
 
 type Step = 'welcome' | 'resume' | 'preferences';
@@ -24,6 +26,8 @@ export default function OnboardingScreen({ navigation }: any) {
   const [step, setStep] = useState<Step>('welcome');
   const [currentIndex, setCurrentIndex] = useState(0);
   const flatListRef = useRef<FlatList>(null);
+  const { toast, showToast, hideToast } = useToast();
+  const fadeAnim = useRef(new Animated.Value(1)).current;
 
   const [resumeSummary, setResumeSummary] = useState<ResumeSummary | null>(null);
   const [targetRoles, setTargetRoles] = useState('');
@@ -35,6 +39,13 @@ export default function OnboardingScreen({ navigation }: any) {
     const index = Math.round(xOffset / SCREEN_WIDTH);
     if (index !== currentIndex) {
       setCurrentIndex(index);
+      // Trigger fade animation on slide change
+      fadeAnim.setValue(0);
+      Animated.timing(fadeAnim, {
+        toValue: 1,
+        duration: 400,
+        useNativeDriver: true,
+      }).start();
     }
   };
 
@@ -61,10 +72,10 @@ export default function OnboardingScreen({ navigation }: any) {
       const withTimestamp: ResumeSummary = { ...summary, synced_at: new Date().toISOString() };
       await setItem(KEYS.RESUME_SUMMARY, withTimestamp);
       setResumeSummary(withTimestamp);
-      Alert.alert('Resume uploaded', `Parsed as ${summary.name}`);
+      showToast(`Resume uploaded: ${summary.name}`);
     } catch (err: any) {
       if (!DocumentPicker.isCancel(err)) {
-        Alert.alert('Upload failed', err.message);
+        showToast('Upload failed', 'error');
       }
     } finally {
       setLoading(false);
@@ -90,6 +101,7 @@ export default function OnboardingScreen({ navigation }: any) {
   if (step === 'welcome') {
     return (
       <View style={styles.sproutContainer}>
+        <Toast message={toast?.message ?? ''} type={toast?.type} visible={!!toast} onDismiss={hideToast} />
         {/* Top Header Pill */}
         <View style={styles.topHeader}>
           <TouchableOpacity style={styles.loginPill}>
@@ -109,11 +121,13 @@ export default function OnboardingScreen({ navigation }: any) {
           scrollEventThrottle={16}
           renderItem={({ item }) => (
             <View style={styles.slide}>
-              <View style={styles.graphicPlaceholder}>
-                <Text style={styles.graphicEmoji}>{item.emoji}</Text>
-              </View>
-              <Text style={styles.slideTitle}>{item.title}</Text>
-              <Text style={styles.slideSubtitle}>{item.sub}</Text>
+              <Animated.View style={{ opacity: fadeAnim }}>
+                <View style={styles.graphicPlaceholder}>
+                  <Text style={styles.graphicEmoji}>{item.emoji}</Text>
+                </View>
+                <Text style={styles.slideTitle}>{item.title}</Text>
+                <Text style={styles.slideSubtitle}>{item.sub}</Text>
+              </Animated.View>
             </View>
           )}
         />
@@ -142,6 +156,7 @@ export default function OnboardingScreen({ navigation }: any) {
   if (step === 'resume') {
     return (
       <View style={styles.sproutContainer}>
+        <Toast message={toast?.message ?? ''} type={toast?.type} visible={!!toast} onDismiss={hideToast} />
         <View style={styles.centerContent}>
           <Text style={styles.slideTitle}>Upload Resume</Text>
           <Text style={styles.slideSubtitle}>We'll use it to match jobs and{`\n`}generate cover letters.</Text>
@@ -211,10 +226,10 @@ const styles = StyleSheet.create({
 
   /* Carousels & Slides */
   slide: { width: SCREEN_WIDTH, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 32 },
-  graphicPlaceholder: { width: 200, height: 200, justifyContent: 'center', alignItems: 'center', marginBottom: 40 },
-  graphicEmoji: { fontSize: 100, opacity: 0.9 }, // Using emojis to simulate the line art illustrations
-  slideTitle: { fontSize: 26, fontWeight: '800', color: '#f9fafb', marginBottom: 16, textAlign: 'center' },
-  slideSubtitle: { fontSize: 16, color: '#9ca3af', textAlign: 'center', lineHeight: 24, paddingHorizontal: 12 },
+  graphicPlaceholder: { width: 160, height: 160, justifyContent: 'center', alignItems: 'center', marginBottom: 32 },
+  graphicEmoji: { fontSize: 64, opacity: 0.9 },
+  slideTitle: { fontSize: 20, fontWeight: '700', color: '#f9fafb', marginBottom: 16, textAlign: 'center', letterSpacing: 0.3 },
+  slideSubtitle: { fontSize: 15, color: '#9ca3af', textAlign: 'center', lineHeight: 22, paddingHorizontal: 12 },
 
   /* Bottom Controls */
   bottomSection: { paddingHorizontal: 24, paddingBottom: 40, alignItems: 'center', width: '100%' },
@@ -223,7 +238,7 @@ const styles = StyleSheet.create({
   dotActive: { backgroundColor: '#7dd3a8', width: 10, height: 10, borderRadius: 5, marginTop: -1 },
   dotInactive: { backgroundColor: '#374151' },
   sproutBtn: { backgroundColor: '#7dd3a8', width: '100%', paddingVertical: 18, borderRadius: 30, alignItems: 'center' },
-  sproutBtnText: { color: '#0e1212', fontWeight: '800', fontSize: 18 },
+  sproutBtnText: { color: '#0e1212', fontWeight: '800', fontSize: 15 },
 
   /* Utilities (from previous views) */
   centerContent: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 24 },

@@ -41,19 +41,27 @@ export const useJobStore = create<JobStore>((set, get) => ({
     if (isLoading) return;
     set({ isLoading: true, error: null });
     try {
-      const resumeSummary = await getItem<{
-        experience_summary: string;
-        skills: string[];
-        target_roles: string[];
-      }>(KEYS.RESUME_SUMMARY);
+      const [resumeSummary, prefs] = await Promise.all([
+        getItem<{
+          experience_summary: string;
+          skills: string[];
+          target_roles: string[];
+        }>(KEYS.RESUME_SUMMARY),
+        getItem<{ target_roles: string[]; preferred_locations: string[]; }>(KEYS.PREFERENCES),
+      ]);
 
-      // Build a rich query string from all resume fields for better matching
+      // Build a rich query string from all resume fields + preferences for better matching
       const parts = [
         resumeSummary?.experience_summary ?? '',
-        (resumeSummary?.target_roles ?? []).join(', '),
+        (resumeSummary?.target_roles ?? prefs?.target_roles ?? []).join(', '),
         (resumeSummary?.skills ?? []).slice(0, 20).join(', '),
+        (prefs?.preferred_locations ?? []).join(', '),
       ].filter(Boolean);
-      const summary = parts.join('. ') || 'software engineer developer';
+      
+      // Fallback: use target roles from prefs if no resume
+      const summary = parts.length > 0 
+        ? parts.join('. ') 
+        : (prefs?.target_roles ?? []).join(', ') || 'software engineer developer';
 
       const excludeIds = swipeHistory.map(r => r.job_id).join(',');
       const data = await fetchJobFeed(summary, excludeIds || undefined, 50);
