@@ -1,0 +1,18 @@
+{
+  "enabled": true,
+  "name": "Auto Translate Content",
+  "description": "Monitors changes to user-facing text content files (.json, .yaml, .yml) and automatically generates translations for all configured target languages, maintaining proper context and locale-specific conventions.",
+  "version": "1",
+  "when": {
+    "type": "fileEdited",
+    "patterns": [
+      "**/*.json",
+      "**/*.yaml",
+      "**/*.yml"
+    ]
+  },
+  "then": {
+    "type": "askAgent",
+    "prompt": "A localization or text content file has been modified. Please:\n1. Identify all new or modified text strings in the changed file\n2. Determine the source language (assume English if not specified)\n3. Generate accurate translations for all configured target languages, maintaining proper context and meaning\n4. Ensure translations adhere to locale-specific conventions (date formats, pluralization, gender, etc.)\n5. Update or create the corresponding translation files for each target language\n6. Preserve any existing translation keys that were not modified"
+  }
+}

@@ -13,7 +13,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-app = FastAPI(title="AI Job Assistant API", version="3.0.0")
+app = FastAPI(title="AI Job Assistant API", version="3.0.1")
 
 app.add_middleware(
     CORSMiddleware,
@@ -103,16 +103,21 @@ try:
 except Exception as e:
     print(f"DB init warning: {e}")
 
-# Auto-purge jobs older than 7 days on startup
+# Auto-purge jobs older than N days — shared by startup and the admin endpoint
+def _purge_old_jobs(days: int = 7) -> int:
+    """Delete job listings older than `days` days. Returns the number of deleted rows."""
+    with engine.connect() as conn:
+        result = conn.execute(text(
+            f"DELETE FROM job_listings WHERE created_at < NOW() - INTERVAL '{days} days'"
+        ))
+        conn.commit()
+        return result.rowcount
+
 def purge_old_jobs_sync(days: int = 7):
     try:
-        with engine.connect() as conn:
-            result = conn.execute(text(
-                f"DELETE FROM job_listings WHERE scraped_at < NOW() - INTERVAL '{days} days'"
-            ))
-            conn.commit()
-            if result.rowcount > 0:
-                print(f"Auto-purge: deleted {result.rowcount} jobs older than {days} days.")
+        deleted = _purge_old_jobs(days)
+        if deleted > 0:
+            print(f"Auto-purge: deleted {deleted} jobs older than {days} days.")
     except Exception as e:
         print(f"Auto-purge warning: {e}")
 
@@ -183,7 +188,7 @@ async def llm_reason(jd: str, candidate_summary: str, rank: int) -> str:
 # ── Health ────────────────────────────────────────────────────────────────────
 @app.get("/")
 def health():
-    return {"status": "ok", "version": "3.0.0"}
+    return {"status": "ok", "version": "3.0.1"}
 
 # ── Resume Parse ──────────────────────────────────────────────────────────────
 @app.post("/api/v1/resume/parse")
@@ -693,21 +698,19 @@ async def job_count():
 
 @app.delete("/api/v1/admin/purge-old-jobs")
 async def purge_old_jobs(days: int = 7):
-    """Delete all job listings scraped more than `days` days ago. Default: 7 days."""
-    with engine.connect() as conn:
-        result = conn.execute(text(
-            "DELETE FROM job_listings WHERE scraped_at < NOW() - INTERVAL ':days days'"
-            .replace(":days days", f"{days} days")
-        ))
-        conn.commit()
-        deleted = result.rowcount
-        remaining = conn.execute(text("SELECT COUNT(*) FROM job_listings")).scalar()
-    return {
-        "deleted": deleted,
-        "remaining": remaining,
-        "cutoff_days": days,
-        "message": f"Deleted {deleted} jobs older than {days} days."
-    }
+    """Delete all job listings older than `days` days. Default: 7 days."""
+    try:
+        deleted = _purge_old_jobs(days)
+        with engine.connect() as conn:
+            remaining = conn.execute(text("SELECT COUNT(*) FROM job_listings")).scalar()
+        return {
+            "deleted": deleted,
+            "remaining": remaining,
+            "cutoff_days": days,
+            "message": f"Deleted {deleted} jobs older than {days} days.",
+        }
+    except Exception as e:
+        raise HTTPException(500, f"Purge failed: {e}")
 
 @app.post("/api/v1/admin/backfill-embeddings")
 async def backfill_embeddings(batch_size: int = 50):

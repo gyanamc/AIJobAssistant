@@ -1,0 +1,24 @@
+{
+  "enabled": true,
+  "name": "Auto-Update Docs on Source Change",
+  "description": "Watches all source files (Python, JS, TS, TSX, CSS, HTML, JSON configs) and prompts the agent to update README or /docs when changes are detected",
+  "version": "1",
+  "when": {
+    "type": "fileEdited",
+    "patterns": [
+      "**/*.py",
+      "**/*.js",
+      "**/*.ts",
+      "**/*.tsx",
+      "**/*.css",
+      "**/*.html",
+      "**/*.json",
+      "**/*.gradle",
+      "**/*.kt"
+    ]
+  },
+  "then": {
+    "type": "askAgent",
+    "prompt": "A source file was just edited. Review the change and determine if any documentation needs to be updated. If a /docs folder exists, update the relevant file there. Otherwise, update the README.md at the root of the project. Only make doc changes if the edit meaningfully affects functionality, APIs, setup steps, or usage."
+  }
+}
