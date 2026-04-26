@@ -1,6 +1,5 @@
 import { create } from 'zustand';
 import { createClient } from '@supabase/supabase-js';
-import { Linking } from 'react-native';
 import { getItem, setItem, removeItem, KEYS } from '../utils/storage';
 import type { AuthSession } from '../types';
 
@@ -21,7 +20,8 @@ export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
 interface AuthStore {
   session: AuthSession | null;
   isAuthenticated: boolean;
-  signInWithGoogle: () => Promise<void>;
+  getOAuthUrl: () => Promise<string>;
+  handleOAuthCallback: (url: string) => Promise<void>;
   signOut: () => Promise<void>;
   refreshSession: () => Promise<void>;
   loadSession: () => Promise<void>;
@@ -38,7 +38,7 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
     }
   },
 
-  signInWithGoogle: async () => {
+  getOAuthUrl: async () => {
     const { data, error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: {
@@ -47,10 +47,39 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
       },
     });
     if (error) throw new Error(error.message);
-    if (data?.url) {
-      // Open the OAuth URL in the device browser
-      await Linking.openURL(data.url);
+    if (!data?.url) throw new Error('No OAuth URL returned');
+    return data.url;
+  },
+
+  handleOAuthCallback: async (url: string) => {
+    // Extract tokens from URL fragment or query params
+    const params = new URLSearchParams(url.split('#')[1] || url.split('?')[1] || '');
+    const accessToken = params.get('access_token');
+    const refreshToken = params.get('refresh_token');
+    
+    if (!accessToken) {
+      throw new Error('No access token in callback URL');
     }
+
+    const { data, error } = await supabase.auth.setSession({
+      access_token: accessToken,
+      refresh_token: refreshToken || '',
+    });
+
+    if (error) throw error;
+    if (!data.session) throw new Error('No session returned');
+
+    const authSession: AuthSession = {
+      access_token: data.session.access_token,
+      refresh_token: data.session.refresh_token,
+      user_id: data.session.user.id,
+      email: data.session.user.email ?? '',
+      avatar_url: data.session.user.user_metadata?.avatar_url,
+      expires_at: data.session.expires_at ?? 0,
+    };
+
+    await setItem(KEYS.AUTH_SESSION, authSession);
+    set({ session: authSession, isAuthenticated: true });
   },
 
   signOut: async () => {
@@ -75,40 +104,6 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
   },
 }));
 
-// Handle deep link callback from OAuth
-async function handleDeepLink(url: string) {
-  if (!url.includes('jobswipeapp://auth/callback')) return;
-  // Extract tokens from URL fragment
-  const params = new URLSearchParams(url.split('#')[1] || url.split('?')[1] || '');
-  const accessToken = params.get('access_token');
-  const refreshToken = params.get('refresh_token');
-  if (accessToken) {
-    const { data, error } = await supabase.auth.setSession({
-      access_token: accessToken,
-      refresh_token: refreshToken || '',
-    });
-    if (!error && data.session) {
-      const authSession: AuthSession = {
-        access_token:  data.session.access_token,
-        refresh_token: data.session.refresh_token,
-        user_id:       data.session.user.id,
-        email:         data.session.user.email ?? '',
-        avatar_url:    data.session.user.user_metadata?.avatar_url,
-        expires_at:    data.session.expires_at ?? 0,
-      };
-      await setItem(KEYS.AUTH_SESSION, authSession);
-      useAuthStore.setState({ session: authSession, isAuthenticated: true });
-    }
-  }
-}
-
-// Listen for deep links when app is open
-Linking.addEventListener('url', ({ url }) => handleDeepLink(url));
-
-// Handle deep link when app is launched from background
-Linking.getInitialURL().then(url => {
-  if (url) handleDeepLink(url);
-});
 
 // Sync Supabase auth state changes into the store
 supabase.auth.onAuthStateChange(async (_event, session) => {

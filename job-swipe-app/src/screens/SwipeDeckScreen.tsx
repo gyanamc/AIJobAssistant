@@ -23,7 +23,7 @@ export default function SwipeDeckScreen({ navigation }: any) {
     const job = deck[index];
     if (!job) return;
     if (!isAuthenticated) {
-      navigation.navigate('Auth', { pendingJob: job });
+      navigation.navigate('AuthGate', { pendingJob: job });
       return;
     }
     await handleApply(job);

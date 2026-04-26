@@ -14,14 +14,14 @@ import ApplicationsScreen from '../screens/ApplicationsScreen';
 import ProfileScreen from '../screens/ProfileScreen';
 import JobDetailSheet from '../screens/JobDetailSheet';
 import HILReviewScreen from '../screens/HILReviewScreen';
-import AuthScreen from '../screens/AuthScreen';
+import AuthGateModal from '../screens/AuthGateModal';
 
 export type RootStackParamList = {
   Onboarding: undefined;
   Main: undefined;
   JobDetail: { job: any };
   HILReview: { job: any; autoApply: boolean };
-  Auth: { pendingJob?: any };
+  AuthGate: { pendingJob?: any; returnTo?: 'Applications' | 'Profile' };
 };
 
 export type TabParamList = {
@@ -112,7 +112,7 @@ export default function AppNavigator() {
         <Stack.Screen name="Main"       component={MainTabs} />
         <Stack.Screen name="JobDetail"  component={JobDetailSheet} options={{ presentation: 'modal' }} />
         <Stack.Screen name="HILReview"  component={HILReviewScreen} options={{ presentation: 'modal' }} />
-        <Stack.Screen name="Auth"       component={AuthScreen}      options={{ presentation: 'modal' }} />
+        <Stack.Screen name="AuthGate"   component={AuthGateModal}   options={{ presentation: 'modal' }} />
       </Stack.Navigator>
     </NavigationContainer>
   );

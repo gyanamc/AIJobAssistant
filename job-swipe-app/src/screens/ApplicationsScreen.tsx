@@ -3,12 +3,20 @@ import {
   View, Text, StyleSheet, FlatList,
   TouchableOpacity, Alert, TextInput, Modal,
 } from 'react-native';
+import { useNavigation } from '@react-navigation/native';
+import type { StackNavigationProp } from '@react-navigation/stack';
+import type { RootStackParamList } from '../navigation/AppNavigator';
 import { useApplicationStore } from '../store/useApplicationStore';
+import { useAuthStore } from '../store/useAuthStore';
 import type { DraftApplication } from '../types';
 import { C, T, R, S, SHADOW } from '../theme';
 
+type NavigationProp = StackNavigationProp<RootStackParamList>;
+
 export default function ApplicationsScreen() {
+  const navigation = useNavigation<NavigationProp>();
   const { drafts, deleteDraft, updateDraft } = useApplicationStore();
+  const isAuthenticated = useAuthStore(s => s.isAuthenticated);
   const [selected, setSelected] = useState<DraftApplication | null>(null);
   const [editing, setEditing] = useState(false);
   const [editText, setEditText] = useState('');
@@ -76,11 +84,30 @@ export default function ApplicationsScreen() {
       </View>
 
       {drafts.length === 0 ? (
-        <View style={styles.empty}>
-          <Text style={styles.emptyGlyph}>◎</Text>
-          <Text style={styles.emptyTitle}>No applications yet</Text>
-          <Text style={styles.emptyBody}>Swipe right on a job to start applying.</Text>
-        </View>
+        !isAuthenticated ? (
+          // Guest empty state
+          <View style={styles.empty}>
+            <Text style={styles.emptyGlyph}>◉</Text>
+            <Text style={styles.emptyTitle}>Track your applications</Text>
+            <Text style={styles.emptyBody}>
+              Sign in to see your saved applications and cover letters.
+            </Text>
+            <TouchableOpacity
+              style={styles.signInButton}
+              onPress={() => navigation.navigate('AuthGate', { returnTo: 'Applications' })}
+              activeOpacity={0.85}
+            >
+              <Text style={styles.signInButtonText}>Sign in to continue</Text>
+            </TouchableOpacity>
+          </View>
+        ) : (
+          // Authenticated empty state
+          <View style={styles.empty}>
+            <Text style={styles.emptyGlyph}>◎</Text>
+            <Text style={styles.emptyTitle}>No applications yet</Text>
+            <Text style={styles.emptyBody}>Swipe right on a job to start applying.</Text>
+          </View>
+        )
       ) : (
         <FlatList
           data={drafts}
@@ -274,6 +301,20 @@ const styles = StyleSheet.create({
     color: C.textSub,
     textAlign: 'center',
     lineHeight: T.loose,
+  },
+  signInButton: {
+    marginTop: S.lg,
+    paddingVertical: 13,
+    paddingHorizontal: S.xxl,
+    backgroundColor: C.accent,
+    borderRadius: R.pill,
+    ...SHADOW.subtle,
+  },
+  signInButtonText: {
+    fontSize: T.base,
+    fontWeight: T.bold,
+    color: C.black,
+    letterSpacing: 0.2,
   },
 
   // Modal

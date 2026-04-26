@@ -4,6 +4,9 @@ import {
   TouchableOpacity, TextInput, Alert,
 } from 'react-native';
 import DocumentPicker from 'react-native-document-picker';
+import { useNavigation } from '@react-navigation/native';
+import type { StackNavigationProp } from '@react-navigation/stack';
+import type { RootStackParamList } from '../navigation/AppNavigator';
 import { useAuthStore } from '../store/useAuthStore';
 import { useJobStore } from '../store/useJobStore';
 import { getItem, setItem, KEYS } from '../utils/storage';
@@ -16,7 +19,10 @@ import { C, T, R, S, SHADOW } from '../theme';
 
 const THRESHOLD_OPTIONS = [70, 75, 80, 85, 90, 95];
 
+type ProfileScreenNavigationProp = StackNavigationProp<RootStackParamList>;
+
 export default function ProfileScreen() {
+  const navigation = useNavigation<ProfileScreenNavigationProp>();
   const { session, isAuthenticated, signOut } = useAuthStore();
   const { resetHistory } = useJobStore();
   const { toast, showToast, hideToast } = useToast();
@@ -106,10 +112,18 @@ export default function ProfileScreen() {
             </TouchableOpacity>
           </>
         ) : (
-          <View style={styles.row}>
-            <Text style={styles.rowLabel}>Not signed in</Text>
-            <Text style={styles.rowValue}>Sign in when applying</Text>
-          </View>
+          <TouchableOpacity 
+            style={styles.row} 
+            onPress={() => navigation.navigate('AuthGate', { returnTo: 'Profile' })}
+          >
+            <View style={{ flex: 1 }}>
+              <Text style={styles.rowLabel}>Sign in to unlock profile features</Text>
+              <Text style={[styles.rowValue, { textAlign: 'left', maxWidth: '100%', marginTop: 4 }]}>
+                Track applications, sync preferences, and more
+              </Text>
+            </View>
+            <Text style={{ fontSize: T.lg, color: C.accent }}>→</Text>
+          </TouchableOpacity>
         )}
       </View>
 
