@@ -19,7 +19,7 @@ export default function JobCard({ job, onTap }: Props) {
     <TouchableOpacity
       style={styles.card}
       onPress={() => onTap?.(job)}
-      activeOpacity={0.97}
+      activeOpacity={1}
     >
       {/* Top row: Match score on the right */}
       <View style={styles.topRow}>
@@ -144,27 +144,29 @@ const styles = StyleSheet.create({
     color: C.white,
   },
   company: {
-    fontSize: T.lg,
-    fontWeight: T.medium,
-    color: C.text,
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#9CA3AF',
     textAlign: 'center',
     marginBottom: S.sm,
+    letterSpacing: 1,
+    textTransform: 'uppercase',
   },
   excerpt: {
-    fontSize: T.sm,
-    color: C.textSub,
+    fontSize: 15,
+    color: '#D1D5DB',
     textAlign: 'center',
-    lineHeight: 20,
+    lineHeight: 22,
     paddingHorizontal: S.md,
     marginBottom: S.xl,
   },
   title: {
-    fontSize: 22,
-    fontWeight: T.bold,
-    color: C.text,
+    fontSize: 32,
+    fontWeight: '900',
+    color: C.white,
     textAlign: 'center',
     marginBottom: S.xl,
-    lineHeight: 28,
+    lineHeight: 38,
   },
   metaContainer: {
     alignItems: 'center',

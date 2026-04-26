@@ -20,6 +20,7 @@ import { C } from '../theme';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const SWIPE_THRESHOLD = SCREEN_WIDTH * 0.35;
+const AUTO_APPLY_THRESHOLD = 80;
 
 interface Props<T> {
   cards: T[];
@@ -102,17 +103,34 @@ function SwipeCard<T>({
     opacity: interpolate(translateX.value, [-20, -SWIPE_THRESHOLD * 0.7], [0, 1], Extrapolate.CLAMP),
   }));
 
-  const backCardStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: isTop ? 1 : 0.97 }],
-    opacity: withTiming(isTop ? 1 : 0.75, { duration: 180 }),
-  }));
+  // Smooth Tinder transition for the card *below* the top card
+  const backCardStyle = useAnimatedStyle(() => {
+    // If this is the top card, the activeTranslateX will fade IT out slightly
+    if (isTop) {
+      return {
+        opacity: interpolate(Math.abs(translateX.value), [0, SCREEN_WIDTH], [1, 0.5], Extrapolate.CLAMP),
+        transform: [{ scale: 1 }],
+      };
+    }
+    // If it's a background card, it scales up and fades in based on the top card's drag
+    const progress = Math.min(Math.abs(activeTranslateX.value) / SWIPE_THRESHOLD, 1);
+    return {
+      transform: [{ scale: interpolate(progress, [0, 1], [0.95, 1], Extrapolate.CLAMP) }],
+      opacity: interpolate(progress, [0, 1], [0.5, 1], Extrapolate.CLAMP),
+    };
+  });
+
+  // Determine if it's an auto-apply scenario
+  const isAutoApply = ((card as any)?.match_score ?? 0) >= AUTO_APPLY_THRESHOLD;
 
   return (
     <PanGestureHandler onGestureEvent={gestureHandler} enabled={isTop && !disabled}>
-      <Animated.View style={[styles.cardContainer, animatedStyle, !isTop && backCardStyle]}>
-        {/* APPLY overlay */}
-        <Animated.View style={[styles.overlay, styles.applyOverlay, applyOpacity]}>
-          <Animated.Text style={styles.applyLabel}>APPLY</Animated.Text>
+      <Animated.View style={[styles.cardContainer, animatedStyle, backCardStyle]}>
+        {/* APPLY / AUTO-APPLY overlay */}
+        <Animated.View style={[styles.overlay, isAutoApply ? styles.autoApplyOverlay : styles.applyOverlay, applyOpacity]}>
+          <Animated.Text style={isAutoApply ? styles.autoApplyLabel : styles.applyLabel}>
+            {isAutoApply ? 'AUTO-APPLY ⚡️' : 'APPLY'}
+          </Animated.Text>
         </Animated.View>
         {/* SKIP overlay */}
         <Animated.View style={[styles.overlay, styles.skipOverlay, skipOpacity]}>
@@ -133,13 +151,20 @@ export default function SwipeDeck<T>({
 }: Props<T>) {
   const activeTranslateX = useSharedValue(0);
 
-  const backgroundStyle = useAnimatedStyle(() => ({
-    backgroundColor: interpolateColor(
-      activeTranslateX.value,
-      [-SWIPE_THRESHOLD, 0, SWIPE_THRESHOLD],
-      ['rgba(255, 59, 48, 0.18)', 'transparent', 'rgba(0, 200, 150, 0.18)'],
-    ),
-  }));
+  // Top card for dynamic background logic
+  const topCard = cards[0] as any;
+  const isTopAutoApply = (topCard?.match_score ?? 0) >= AUTO_APPLY_THRESHOLD;
+
+  const backgroundStyle = useAnimatedStyle(() => {
+    const rightColor = isTopAutoApply ? 'rgba(59, 130, 246, 0.25)' : 'rgba(0, 200, 150, 0.18)'; // Blue for AI auto-apply, Green for manual apply
+    return {
+      backgroundColor: interpolateColor(
+        activeTranslateX.value,
+        [-SWIPE_THRESHOLD, 0, SWIPE_THRESHOLD],
+        ['rgba(255, 59, 48, 0.18)', 'transparent', rightColor],
+      ),
+    };
+  });
 
   return (
     <View style={styles.deckWrapper}>
@@ -191,6 +216,17 @@ const styles = StyleSheet.create({
     color: C.accent,
     fontSize: 14,
     fontWeight: '800',
+    letterSpacing: 1.5,
+  },
+  autoApplyOverlay: {
+    left: 18,
+    borderColor: '#3B82F6', // Vibrant blue for AI
+    backgroundColor: 'rgba(59, 130, 246, 0.15)',
+  },
+  autoApplyLabel: {
+    color: '#3B82F6',
+    fontSize: 16,
+    fontWeight: '900',
     letterSpacing: 1.5,
   },
   skipLabel: {
