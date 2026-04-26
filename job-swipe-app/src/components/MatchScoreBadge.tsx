@@ -24,7 +24,7 @@ export default function MatchScoreBadge({ score }: Props) {
   const { text, bg } = getScoreColour(score);
   return (
     <View style={[styles.badge, { backgroundColor: bg }]}>
-      <Text style={[styles.text, { color: text }]}>{score}%</Text>
+      <Text style={[styles.text, { color: text }]}>⚡ {score}%</Text>
     </View>
   );
 }
