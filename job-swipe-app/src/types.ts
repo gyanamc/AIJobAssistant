@@ -8,6 +8,10 @@ export interface JobCard {
   excerpt: string;
   match_score: number | null;
   apply_url: string;
+  industry?: string;
+  company_size?: string;
+  job_level?: string;
+  job_type?: string;
 }
 
 export interface SwipeRecord {

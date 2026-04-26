@@ -28,6 +28,8 @@ load_dotenv()
 
 DATABASE_URL   = os.getenv("DATABASE_URL", "")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+SERP_API_KEY = os.getenv("SERP_API_KEY", "")
+GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
 
 if DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
@@ -52,6 +54,10 @@ class JobRecord:
     description: str
     apply_url: str
     posted_date: str
+    industry: str = ""
+    company_size: str = ""
+    job_level: str = ""
+    job_type: str = ""
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 def stable_id(source: str, url: str, title: str) -> str:
@@ -98,16 +104,16 @@ def insert_one(job: JobRecord, embedding: list | None) -> bool:
                 emb_str = "[" + ",".join(str(x) for x in embedding) + "]"
                 result = conn.execute(text("""
                     INSERT INTO job_listings
-                        (id, title, company, location, source, description, apply_url, embedding, scraped_at, updated_at)
-                    VALUES (:id, :title, :company, :location, :source, :description, :apply_url,
+                        (id, title, company, location, source, description, apply_url, industry, company_size, job_level, job_type, embedding, scraped_at, updated_at)
+                    VALUES (:id, :title, :company, :location, :source, :description, :apply_url, :industry, :company_size, :job_level, :job_type,
                             :emb::vector, NOW(), NOW())
                     ON CONFLICT (id) DO NOTHING
                 """), {**asdict(job), "emb": emb_str})
             else:
                 result = conn.execute(text("""
                     INSERT INTO job_listings
-                        (id, title, company, location, source, description, apply_url, scraped_at, updated_at)
-                    VALUES (:id, :title, :company, :location, :source, :description, :apply_url, NOW(), NOW())
+                        (id, title, company, location, source, description, apply_url, industry, company_size, job_level, job_type, scraped_at, updated_at)
+                    VALUES (:id, :title, :company, :location, :source, :description, :apply_url, :industry, :company_size, :job_level, :job_type, NOW(), NOW())
                     ON CONFLICT (id) DO NOTHING
                 """), asdict(job))
             conn.commit()
@@ -140,6 +146,59 @@ def get_embedding(text_input: str) -> list | None:
         print(f"  Embedding error: {e}")
         return None
 
+# ── SERP API Enrichment ───────────────────────────────────────────────────────
+def enrich_job_with_serp(job: JobRecord):
+    if not SERP_API_KEY:
+        return
+        
+    # Search for company info
+    query = urllib.parse.quote(f"{job.company} employee count and industry")
+    url = f"https://serpapi.com/search.json?q={query}&api_key={SERP_API_KEY}"
+    
+    try:
+        req = urllib.request.Request(url)
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            data = json.loads(resp.read())
+            
+        snippets = []
+        if "knowledge_graph" in data:
+            snippets.append(json.dumps(data["knowledge_graph"]))
+        for res in data.get("organic_results", [])[:3]:
+            snippets.append(res.get("snippet", ""))
+            
+        context_str = " ".join(snippets)
+        if not context_str or not GROQ_API_KEY:
+            return
+            
+        # Use Groq to extract JSON
+        prompt = (
+            f"Extract the following info for company '{job.company}' from these search results: {context_str}\n"
+            f"Also infer job_level (Entry, Mid, Senior, Executive) and job_type (Remote, On-site, Hybrid) from title '{job.title}' and location '{job.location}'.\n"
+            f"Return ONLY valid JSON with keys: 'industry' (string), 'company_size' (string, e.g. '1001-5000'), 'job_level' (string), 'job_type' (string). No markdown blocks."
+        )
+        
+        req_llm = urllib.request.Request(
+            "https://api.groq.com/openai/v1/chat/completions",
+            data=json.dumps({
+                "model": "llama-3.1-8b-instant",
+                "messages": [{"role": "user", "content": prompt}],
+                "temperature": 0.1,
+                "response_format": {"type": "json_object"}
+            }).encode(),
+            headers={"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"}
+        )
+        
+        with urllib.request.urlopen(req_llm, timeout=15) as resp_llm:
+            result = json.loads(resp_llm.read())
+            parsed = json.loads(result["choices"][0]["message"]["content"])
+            job.industry = parsed.get("industry", "")[:50]
+            job.company_size = parsed.get("company_size", "")[:50]
+            job.job_level = parsed.get("job_level", "")[:50]
+            job.job_type = parsed.get("job_type", "")[:50]
+            
+    except Exception as e:
+        print(f"  SERP enrichment error for {job.company}: {e}")
+
 # ── Process one job: validate → embed → insert ────────────────────────────────
 def process_and_insert(job: JobRecord, dry_run: bool) -> bool:
     """Validate, embed, and insert a single job. Returns True if inserted."""
@@ -158,6 +217,8 @@ def process_and_insert(job: JobRecord, dry_run: bool) -> bool:
         stats["inserted"] += 1
         return True
 
+    enrich_job_with_serp(job)
+    
     embedding = get_embedding(f"{job.title} {job.company} {job.description[:500]}")
     inserted = insert_one(job, embedding)
     if inserted:

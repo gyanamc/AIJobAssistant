@@ -93,6 +93,10 @@ def init_db():
             description TEXT,
             excerpt TEXT,
             apply_url TEXT,
+            industry TEXT,
+            company_size TEXT,
+            job_level TEXT,
+            job_type TEXT,
             created_at TIMESTAMP DEFAULT NOW(),
             updated_at TIMESTAMP DEFAULT NOW()
         )
@@ -349,6 +353,7 @@ async def jobs_feed(
                     rows = conn.execute(text(f"""
                         SELECT id, title, company, location, source, description,
                                LEFT(description, 200) AS excerpt, apply_url,
+                               industry, company_size, job_level, job_type,
                                ROUND(CAST((1 - (embedding <=> :emb::vector)) * 100 AS numeric), 0)::integer AS match_score
                         FROM job_listings
                         WHERE embedding IS NOT NULL {excl_clause}
@@ -369,6 +374,7 @@ async def jobs_feed(
                 rows = conn.execute(text(f"""
                     SELECT id, title, company, location, source, description,
                            LEFT(description, 200) AS excerpt, apply_url,
+                           industry, company_size, job_level, job_type,
                            GREATEST(50, LEAST(95,
                                (55 + ts_rank(
                                    to_tsvector('english', COALESCE(title,'') || ' ' || COALESCE(description,'')),
@@ -393,6 +399,7 @@ async def jobs_feed(
                 rows = conn.execute(text(f"""
                     SELECT id, title, company, location, source, description,
                            LEFT(description, 200) AS excerpt, apply_url,
+                           industry, company_size, job_level, job_type,
                            (55 + ABS(HASHTEXT(id::text)) % 36)::integer AS match_score
                     FROM job_listings {excl_clause}
                     ORDER BY RANDOM() LIMIT :lim
@@ -410,8 +417,12 @@ async def jobs_feed(
             "source": row.source or "naukri",
             "description": row.description or "",
             "excerpt": row.excerpt or (row.description or "")[:200],
-            "match_score": int(row.match_score) if row.match_score is not None else 60,
             "apply_url": row.apply_url or "",
+            "industry": row.industry or "",
+            "company_size": row.company_size or "",
+            "job_level": row.job_level or "",
+            "job_type": row.job_type or "",
+            "match_score": int(row.match_score) if getattr(row, 'match_score', None) is not None else 60,
         })
 
     return {"jobs": jobs, "total": len(jobs)}

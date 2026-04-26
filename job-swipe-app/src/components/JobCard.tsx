@@ -55,26 +55,36 @@ export default function JobCard({ job, onTap }: Props) {
           </View>
         </View>
         
-        <View style={styles.metaRow}>
-          <View style={styles.chip}>
-            <Text style={styles.chipText}>📊 Executive Level</Text>
+        {(job.job_level || job.job_type) && (
+          <View style={styles.metaRow}>
+            {job.job_level && (
+              <View style={styles.chip}>
+                <Text style={styles.chipText}>📊 {job.job_level}</Text>
+              </View>
+            )}
+            {job.job_type && (
+              <View style={styles.chip}>
+                <Text style={styles.chipText}>💻 {job.job_type}</Text>
+              </View>
+            )}
           </View>
-          <View style={styles.chip}>
-            <Text style={styles.chipText}>💻 Remote</Text>
-          </View>
-        </View>
+        )}
         
-        <View style={styles.metaRow}>
-          <View style={styles.chip}>
-            <Text style={styles.chipText}>💼 Technology</Text>
+        {job.industry && (
+          <View style={styles.metaRow}>
+            <View style={styles.chip}>
+              <Text style={styles.chipText}>💼 {job.industry}</Text>
+            </View>
           </View>
-        </View>
+        )}
         
-        <View style={styles.metaRow}>
-          <View style={styles.chip}>
-            <Text style={styles.chipText}>🏢 1001-5000 employees</Text>
+        {job.company_size && (
+          <View style={styles.metaRow}>
+            <View style={styles.chip}>
+              <Text style={styles.chipText}>🏢 {job.company_size}</Text>
+            </View>
           </View>
-        </View>
+        )}
       </View>
 
       <View style={{ flex: 1 }} />
