@@ -103,6 +103,21 @@ try:
 except Exception as e:
     print(f"DB init warning: {e}")
 
+# Auto-purge jobs older than 7 days on startup
+def purge_old_jobs_sync(days: int = 7):
+    try:
+        with engine.connect() as conn:
+            result = conn.execute(text(
+                f"DELETE FROM job_listings WHERE scraped_at < NOW() - INTERVAL '{days} days'"
+            ))
+            conn.commit()
+            if result.rowcount > 0:
+                print(f"Auto-purge: deleted {result.rowcount} jobs older than {days} days.")
+    except Exception as e:
+        print(f"Auto-purge warning: {e}")
+
+purge_old_jobs_sync()
+
 # ── Auth ──────────────────────────────────────────────────────────────────────
 security = HTTPBearer(auto_error=False)
 
@@ -675,6 +690,24 @@ async def job_count():
     with engine.connect() as conn:
         total = conn.execute(text("SELECT COUNT(*) FROM job_listings")).scalar()
     return {"total_jobs": total}
+
+@app.delete("/api/v1/admin/purge-old-jobs")
+async def purge_old_jobs(days: int = 7):
+    """Delete all job listings scraped more than `days` days ago. Default: 7 days."""
+    with engine.connect() as conn:
+        result = conn.execute(text(
+            "DELETE FROM job_listings WHERE scraped_at < NOW() - INTERVAL ':days days'"
+            .replace(":days days", f"{days} days")
+        ))
+        conn.commit()
+        deleted = result.rowcount
+        remaining = conn.execute(text("SELECT COUNT(*) FROM job_listings")).scalar()
+    return {
+        "deleted": deleted,
+        "remaining": remaining,
+        "cutoff_days": days,
+        "message": f"Deleted {deleted} jobs older than {days} days."
+    }
 
 @app.post("/api/v1/admin/backfill-embeddings")
 async def backfill_embeddings(batch_size: int = 50):
