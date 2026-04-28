@@ -11,6 +11,7 @@ import asyncio
 import httpx
 import feedparser
 import random
+import time
 from datetime import datetime, timezone
 from sqlalchemy import create_engine, text
 from dotenv import load_dotenv
@@ -140,9 +141,33 @@ async def process(job: dict, stats: dict) -> bool:
     inserted = insert_job(job, embedding)
     if inserted:
         stats["inserted"] += 1
+        src = job.get("source", "unknown")
+        stats["by_source"][src] = stats["by_source"].get(src, 0) + 1
         emb = "✓" if embedding else "⚠"
         print(f"  [{stats['inserted']}] {emb} {job['title']} @ {job['company']}")
     return inserted
+
+
+def log_ingestion_run(stats: dict, duration_seconds: float) -> None:
+    """Persist a summary of this ingestion run to the ingestion_logs table."""
+    try:
+        with engine.connect() as conn:
+            conn.execute(text("""
+                INSERT INTO ingestion_logs
+                    (run_date, inserted, skipped, rejected, source_breakdown, duration_seconds, created_at)
+                VALUES
+                    (CURRENT_DATE, :inserted, :skipped, :rejected, :breakdown::jsonb, :duration, NOW())
+            """), {
+                "inserted":  stats["inserted"],
+                "skipped":   stats["skipped"],
+                "rejected":  stats["rejected"],
+                "breakdown": json.dumps(stats.get("by_source", {})),
+                "duration":  round(duration_seconds, 2),
+            })
+            conn.commit()
+        print(f"  ✓ Ingestion run logged to ingestion_logs.")
+    except Exception as e:
+        print(f"  ⚠ Could not write ingestion log: {e}")
 
 # ── Source 1: RemoteOK ────────────────────────────────────────────────────────
 async def fetch_remoteok() -> list:
@@ -273,7 +298,8 @@ async def main():
     print(f"Target: {TARGET} jobs | OpenAI: {'✓' if OPENAI_API_KEY else '✗'}")
     print(f"{'='*60}\n")
 
-    stats = {"inserted": 0, "skipped": 0, "rejected": 0}
+    stats = {"inserted": 0, "skipped": 0, "rejected": 0, "by_source": {}}
+    start_time = time.monotonic()
     roles = ROLES.copy()
     random.shuffle(roles)
 
@@ -324,12 +350,17 @@ async def main():
                     await process(job, stats)
                 await asyncio.sleep(random.uniform(1, 2))
 
+    duration = time.monotonic() - start_time
     print(f"\n{'='*60}")
     print(f"✅ Done — {datetime.now().strftime('%H:%M UTC')}")
     print(f"   Inserted:  {stats['inserted']}")
     print(f"   Skipped:   {stats['skipped']} (duplicates)")
     print(f"   Rejected:  {stats['rejected']} (quality check)")
+    print(f"   Duration:  {duration:.1f}s")
+    if stats["by_source"]:
+        print(f"   By source: {stats['by_source']}")
     print(f"{'='*60}\n")
+    log_ingestion_run(stats, duration)
 
 if __name__ == "__main__":
     asyncio.run(main())
