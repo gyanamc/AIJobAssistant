@@ -97,8 +97,23 @@ def init_db():
             company_size TEXT,
             job_level TEXT,
             job_type TEXT,
+            scraped_at TIMESTAMP DEFAULT NOW(),
             created_at TIMESTAMP DEFAULT NOW(),
             updated_at TIMESTAMP DEFAULT NOW()
+        )
+    """)
+    # Ensure scraped_at exists on tables created before this column was added
+    _run_ddl("ALTER TABLE job_listings ADD COLUMN IF NOT EXISTS scraped_at TIMESTAMP DEFAULT NOW()")
+    _run_ddl("""
+        CREATE TABLE IF NOT EXISTS ingestion_logs (
+            id SERIAL PRIMARY KEY,
+            run_date DATE NOT NULL DEFAULT CURRENT_DATE,
+            inserted INTEGER NOT NULL DEFAULT 0,
+            skipped INTEGER NOT NULL DEFAULT 0,
+            rejected INTEGER NOT NULL DEFAULT 0,
+            source_breakdown JSONB NOT NULL DEFAULT '{}',
+            duration_seconds NUMERIC(8,2),
+            created_at TIMESTAMP DEFAULT NOW()
         )
     """)
 
@@ -826,6 +841,96 @@ async def migrate_to_openai_embeddings(batch_size: int = 100):
     return result
 
 
+# ── Ingestion Monitoring ──────────────────────────────────────────────────────
+@app.get("/api/v1/admin/daily-stats")
+async def daily_stats():
+    """Return job insertion counts broken down by day, source, and embedding status."""
+    try:
+        with engine.connect() as conn:
+            total_jobs = conn.execute(text("SELECT COUNT(*) FROM job_listings")).scalar() or 0
+
+            today_count = conn.execute(text(
+                "SELECT COUNT(*) FROM job_listings WHERE scraped_at >= CURRENT_DATE"
+            )).scalar() or 0
+
+            yesterday_count = conn.execute(text(
+                "SELECT COUNT(*) FROM job_listings "
+                "WHERE scraped_at >= CURRENT_DATE - INTERVAL '1 day' "
+                "  AND scraped_at < CURRENT_DATE"
+            )).scalar() or 0
+
+            week_count = conn.execute(text(
+                "SELECT COUNT(*) FROM job_listings WHERE scraped_at >= CURRENT_DATE - INTERVAL '7 days'"
+            )).scalar() or 0
+
+            source_rows = conn.execute(text(
+                "SELECT source, COUNT(*) AS cnt FROM job_listings GROUP BY source ORDER BY cnt DESC"
+            )).fetchall()
+
+            with_embeddings = conn.execute(text(
+                "SELECT COUNT(*) FROM job_listings WHERE embedding IS NOT NULL"
+            )).scalar() or 0
+
+            # Per-source counts for today
+            today_source_rows = conn.execute(text(
+                "SELECT source, COUNT(*) AS cnt FROM job_listings "
+                "WHERE scraped_at >= CURRENT_DATE GROUP BY source ORDER BY cnt DESC"
+            )).fetchall()
+
+        return {
+            "total_jobs": total_jobs,
+            "inserted_today": today_count,
+            "inserted_yesterday": yesterday_count,
+            "inserted_this_week": week_count,
+            "source_breakdown": {row.source or "unknown": int(row.cnt) for row in source_rows},
+            "today_by_source": {row.source or "unknown": int(row.cnt) for row in today_source_rows},
+            "embeddings": {
+                "with_embedding": with_embeddings,
+                "without_embedding": total_jobs - with_embeddings,
+                "coverage_pct": round(with_embeddings / total_jobs * 100, 1) if total_jobs else 0,
+            },
+        }
+    except Exception as e:
+        raise HTTPException(500, f"Failed to fetch daily stats: {e}")
+
+
+@app.get("/api/v1/admin/ingestion-log")
+async def ingestion_log(limit: int = 30):
+    """Return recent ingestion run history from the ingestion_logs table."""
+    try:
+        with engine.connect() as conn:
+            rows = conn.execute(text("""
+                SELECT id, run_date, inserted, skipped, rejected,
+                       source_breakdown, duration_seconds, created_at
+                FROM ingestion_logs
+                ORDER BY created_at DESC
+                LIMIT :lim
+            """), {"lim": limit}).fetchall()
+
+        logs = []
+        for row in rows:
+            breakdown = row.source_breakdown
+            if isinstance(breakdown, str):
+                try:
+                    breakdown = json.loads(breakdown)
+                except Exception:
+                    breakdown = {}
+            logs.append({
+                "id": row.id,
+                "run_date": str(row.run_date),
+                "inserted": row.inserted,
+                "skipped": row.skipped,
+                "rejected": row.rejected,
+                "source_breakdown": breakdown or {},
+                "duration_seconds": float(row.duration_seconds) if row.duration_seconds else None,
+                "created_at": row.created_at.isoformat() if row.created_at else None,
+            })
+
+        return {"logs": logs, "total": len(logs)}
+    except Exception as e:
+        raise HTTPException(500, f"Failed to fetch ingestion log: {e}")
+
+
 # ── Events Status ─────────────────────────────────────────────────────────────
 @app.get("/api/v1/recruiter/events")
 async def get_events(recruiter_id: Optional[str] = Depends(get_recruiter_id)):
@@ -886,9 +991,12 @@ async def dashboard_view():
             :root {
                 --bg: #0e1212;
                 --surface: #1f2937;
+                --surface2: #263040;
                 --text: #f9fafb;
                 --text-muted: #9ca3af;
                 --accent: #7dd3a8;
+                --blue: #60a5fa;
+                --yellow: #fbbf24;
                 --red: #ef4444;
             }
             body {
@@ -898,39 +1006,116 @@ async def dashboard_view():
             }
             .header { display: flex; align-items: center; gap: 15px; margin-bottom: 40px; }
             .header h1 { margin: 0; color: var(--accent); font-weight: 800; font-size: 2.5rem; }
-            .metrics-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px; margin-bottom: 40px; }
-            .card { background: var(--surface); padding: 30px; border-radius: 16px; box-shadow: 0 4px 20px rgba(0,0,0,0.5); }
-            .card h3 { margin: 0 0 10px 0; color: var(--text-muted); font-size: 1rem; font-weight: 600; text-transform: uppercase; }
-            .card .value { font-size: 3.5rem; font-weight: 800; color: var(--text); }
+            .section-title {
+                font-size: 1.1rem; font-weight: 700; color: var(--text-muted);
+                text-transform: uppercase; letter-spacing: 0.08em;
+                margin: 40px 0 16px 0; border-left: 3px solid var(--accent); padding-left: 12px;
+            }
+            .metrics-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 20px; margin-bottom: 10px; }
+            .card { background: var(--surface); padding: 28px 30px; border-radius: 16px; box-shadow: 0 4px 20px rgba(0,0,0,0.5); }
+            .card h3 { margin: 0 0 10px 0; color: var(--text-muted); font-size: 0.85rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; }
+            .card .value { font-size: 3rem; font-weight: 800; color: var(--text); line-height: 1; }
+            .card .value.accent { color: var(--accent); }
+            .card .value.blue   { color: var(--blue); }
+            .card .value.yellow { color: var(--yellow); }
+            .card .sub { font-size: 0.8rem; color: var(--text-muted); margin-top: 6px; }
             .tables-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 30px; }
             .feed-card { background: var(--surface); padding: 25px; border-radius: 16px; }
-            .feed-card h2 { margin-top: 0; border-bottom: 2px solid var(--bg); padding-bottom: 15px; }
-            .feed-item { padding: 15px 0; border-bottom: 1px solid rgba(255,255,255,0.05); display: flex; justify-content: space-between; }
+            .feed-card h2 { margin-top: 0; border-bottom: 2px solid var(--bg); padding-bottom: 15px; font-size: 1.1rem; }
+            .feed-item { padding: 13px 0; border-bottom: 1px solid rgba(255,255,255,0.05); display: flex; justify-content: space-between; align-items: center; }
             .feed-item:last-child { border-bottom: none; }
-            .match-badge { padding: 4px 8px; border-radius: 4px; font-size: 12px; font-weight: bold; background: rgba(125,211,168,0.2); color: var(--accent); }
-            .pass-badge { padding: 4px 8px; border-radius: 4px; font-size: 12px; font-weight: bold; background: rgba(239,68,68,0.2); color: var(--red); }
-            .time { color: var(--text-muted); font-size: 0.85rem; }
+            .match-badge { padding: 4px 8px; border-radius: 4px; font-size: 11px; font-weight: bold; background: rgba(125,211,168,0.2); color: var(--accent); }
+            .pass-badge  { padding: 4px 8px; border-radius: 4px; font-size: 11px; font-weight: bold; background: rgba(239,68,68,0.2); color: var(--red); }
+            .source-badge { padding: 3px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; background: rgba(96,165,250,0.15); color: var(--blue); }
+            .time { color: var(--text-muted); font-size: 0.82rem; }
+            /* Source bar chart */
+            .bar-row { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+            .bar-label { width: 90px; font-size: 0.82rem; color: var(--text-muted); text-align: right; flex-shrink: 0; }
+            .bar-track { flex: 1; background: rgba(255,255,255,0.07); border-radius: 4px; height: 18px; overflow: hidden; }
+            .bar-fill  { height: 100%; border-radius: 4px; background: var(--accent); transition: width 0.6s ease; }
+            .bar-count { width: 50px; font-size: 0.82rem; color: var(--text); text-align: right; flex-shrink: 0; }
+            /* Embedding donut-style */
+            .emb-row { display: flex; gap: 20px; margin-top: 8px; }
+            .emb-stat { text-align: center; }
+            .emb-stat .num { font-size: 1.6rem; font-weight: 800; }
+            .emb-stat .lbl { font-size: 0.75rem; color: var(--text-muted); margin-top: 2px; }
+            /* Log table */
+            .log-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+            .log-table th { text-align: left; color: var(--text-muted); font-weight: 600; padding: 8px 10px; border-bottom: 1px solid rgba(255,255,255,0.08); }
+            .log-table td { padding: 10px 10px; border-bottom: 1px solid rgba(255,255,255,0.04); vertical-align: top; }
+            .log-table tr:last-child td { border-bottom: none; }
+            .log-table tr:hover td { background: rgba(255,255,255,0.03); }
+            .pill { display: inline-block; padding: 2px 7px; border-radius: 10px; font-size: 11px; font-weight: 600; margin: 1px; }
+            .pill-green  { background: rgba(125,211,168,0.15); color: var(--accent); }
+            .pill-blue   { background: rgba(96,165,250,0.15);  color: var(--blue); }
+            .pill-yellow { background: rgba(251,191,36,0.15);  color: var(--yellow); }
+            .pill-red    { background: rgba(239,68,68,0.15);   color: var(--red); }
+            .empty { color: var(--text-muted); padding: 20px 0; font-size: 0.9rem; }
         </style>
     </head>
     <body>
         <div class="header">
             <h1>🚀 AntiGravity</h1>
-            <span style="color: var(--text-muted); font-size: 1.2rem; font-weight: 500;">Metrics Dashboard</span>
+            <span style="color: var(--text-muted); font-size: 1.2rem; font-weight: 500;">Command Center</span>
             <div style="flex-grow: 1;"></div>
-            <div id="status" style="color: var(--accent);">● Live Engine</div>
+            <div id="status" style="color: var(--accent);">● Live</div>
         </div>
 
+        <!-- ── Recruiter metrics ── -->
+        <div class="section-title">Recruiter Activity</div>
         <div class="metrics-grid">
             <div class="card">
-                <h3>Total Candidate Profiles</h3>
-                <div class="value" id="total_profiles">--</div>
+                <h3>Candidate Profiles</h3>
+                <div class="value accent" id="total_profiles">--</div>
             </div>
             <div class="card">
-                <h3>Total Jobs Evaluated</h3>
+                <h3>Jobs Evaluated</h3>
                 <div class="value" id="total_jobs">--</div>
             </div>
         </div>
 
+        <!-- ── Scraper / ingestion metrics ── -->
+        <div class="section-title">Job Ingestion</div>
+        <div class="metrics-grid">
+            <div class="card">
+                <h3>Total in DB</h3>
+                <div class="value accent" id="ing_total">--</div>
+            </div>
+            <div class="card">
+                <h3>Inserted Today</h3>
+                <div class="value blue" id="ing_today">--</div>
+                <div class="sub" id="ing_today_sub"></div>
+            </div>
+            <div class="card">
+                <h3>Yesterday</h3>
+                <div class="value" id="ing_yesterday">--</div>
+            </div>
+            <div class="card">
+                <h3>This Week</h3>
+                <div class="value yellow" id="ing_week">--</div>
+            </div>
+        </div>
+
+        <div class="tables-grid" style="margin-top: 24px;">
+            <!-- Source breakdown bar chart -->
+            <div class="feed-card">
+                <h2>📊 Jobs by Source (all-time)</h2>
+                <div id="source_bars"><div class="empty">Loading…</div></div>
+                <div style="margin-top: 20px;">
+                    <h2 style="border-top: 2px solid var(--bg); padding-top: 18px; margin-bottom: 12px;">🔗 Embedding Coverage</h2>
+                    <div class="emb-row" id="emb_stats"></div>
+                </div>
+            </div>
+
+            <!-- Ingestion run log -->
+            <div class="feed-card">
+                <h2>🗓 Recent Ingestion Runs</h2>
+                <div id="ingestion_log_wrap"><div class="empty">Loading…</div></div>
+            </div>
+        </div>
+
+        <!-- ── Recruiter activity feeds ── -->
+        <div class="section-title" style="margin-top: 40px;">Recent Activity</div>
         <div class="tables-grid">
             <div class="feed-card">
                 <h2>Recent Jobs Scanned</h2>
@@ -943,45 +1128,145 @@ async def dashboard_view():
         </div>
 
         <script>
+            // ── Recruiter stats ──────────────────────────────────────────────
             async function fetchStats() {
                 try {
                     const res = await fetch('/api/v1/admin/stats');
                     const data = await res.json();
-                    
+
                     document.getElementById('total_profiles').innerText = data.metrics.total_profiles;
                     document.getElementById('total_jobs').innerText = data.metrics.total_jobs_evaluated;
-                    
+
                     document.getElementById('jobs_feed').innerHTML = data.recent_jobs.map(j => `
                         <div class="feed-item">
                             <div>
-                                <strong style="display:block; margin-bottom:5px;">${j.job_title}</strong>
-                                <span style="color: #9ca3af; font-size: 14px;">${j.company_name}</span>
+                                <strong style="display:block; margin-bottom:4px;">${j.job_title}</strong>
+                                <span style="color:#9ca3af; font-size:13px;">${j.company_name}</span>
                             </div>
-                            <div style="text-align: right;">
-                                <span class="${j.is_match ? 'match-badge' : 'pass-badge'}">${j.is_match ? 'APPLY MATCH' : 'PASS'}</span>
-                                <div class="time" style="margin-top: 8px;">${new Date(j.created_at).toLocaleTimeString()}</div>
+                            <div style="text-align:right;">
+                                <span class="${j.is_match ? 'match-badge' : 'pass-badge'}">${j.is_match ? 'MATCH' : 'PASS'}</span>
+                                <div class="time" style="margin-top:6px;">${new Date(j.created_at).toLocaleTimeString()}</div>
                             </div>
                         </div>
-                    `).join('') || '<div style="color: #9ca3af; padding: 20px 0;">No jobs scanned yet.</div>';
+                    `).join('') || '<div class="empty">No jobs scanned yet.</div>';
 
                     document.getElementById('profiles_feed').innerHTML = data.recent_profiles.map(p => `
                         <div class="feed-item">
-                            <div>
-                                <strong>Role: </strong> <span>${p.role_title || 'Unknown'}</span>
-                            </div>
+                            <div><strong>Role: </strong><span>${p.role_title || 'Unknown'}</span></div>
                             <div class="time">${new Date(p.created_at).toLocaleTimeString()}</div>
                         </div>
-                    `).join('') || '<div style="color: #9ca3af; padding: 20px 0;">No profiles synced yet.</div>';
+                    `).join('') || '<div class="empty">No profiles synced yet.</div>';
 
                 } catch (err) {
-                    console.error("Failed to fetch stats", err);
-                    document.getElementById('status').innerText = "● Offline";
-                    document.getElementById('status').style.color = "var(--red)";
+                    console.error('Failed to fetch stats', err);
+                    document.getElementById('status').innerText = '● Offline';
+                    document.getElementById('status').style.color = 'var(--red)';
                 }
             }
 
-            setInterval(fetchStats, 5000);
+            // ── Daily ingestion stats ────────────────────────────────────────
+            async function fetchDailyStats() {
+                try {
+                    const res = await fetch('/api/v1/admin/daily-stats');
+                    if (!res.ok) return;
+                    const d = await res.json();
+
+                    document.getElementById('ing_total').innerText     = d.total_jobs.toLocaleString();
+                    document.getElementById('ing_today').innerText     = d.inserted_today.toLocaleString();
+                    document.getElementById('ing_yesterday').innerText = d.inserted_yesterday.toLocaleString();
+                    document.getElementById('ing_week').innerText      = d.inserted_this_week.toLocaleString();
+
+                    // Today sub-label: top source
+                    const todaySources = Object.entries(d.today_by_source || {});
+                    if (todaySources.length) {
+                        const top = todaySources.sort((a,b) => b[1]-a[1])[0];
+                        document.getElementById('ing_today_sub').innerText = `top source: ${top[0]}`;
+                    }
+
+                    // Source bar chart
+                    const sources = Object.entries(d.source_breakdown || {}).sort((a,b) => b[1]-a[1]);
+                    const maxVal  = sources.length ? sources[0][1] : 1;
+                    const sourceColors = { remoteok:'#7dd3a8', naukri:'#60a5fa', adzuna:'#fbbf24', jsearch:'#f472b6', linkedin:'#a78bfa' };
+                    document.getElementById('source_bars').innerHTML = sources.length
+                        ? sources.map(([src, cnt]) => {
+                            const pct   = Math.round(cnt / maxVal * 100);
+                            const color = sourceColors[src] || '#9ca3af';
+                            return `<div class="bar-row">
+                                <div class="bar-label">${src}</div>
+                                <div class="bar-track"><div class="bar-fill" style="width:${pct}%;background:${color};"></div></div>
+                                <div class="bar-count">${cnt.toLocaleString()}</div>
+                            </div>`;
+                          }).join('')
+                        : '<div class="empty">No data yet.</div>';
+
+                    // Embedding coverage
+                    const emb = d.embeddings || {};
+                    document.getElementById('emb_stats').innerHTML = `
+                        <div class="emb-stat">
+                            <div class="num" style="color:var(--accent);">${(emb.with_embedding||0).toLocaleString()}</div>
+                            <div class="lbl">With embedding</div>
+                        </div>
+                        <div class="emb-stat">
+                            <div class="num" style="color:var(--red);">${(emb.without_embedding||0).toLocaleString()}</div>
+                            <div class="lbl">Missing embedding</div>
+                        </div>
+                        <div class="emb-stat">
+                            <div class="num" style="color:var(--yellow);">${emb.coverage_pct||0}%</div>
+                            <div class="lbl">Coverage</div>
+                        </div>`;
+                } catch (err) {
+                    console.error('Failed to fetch daily stats', err);
+                }
+            }
+
+            // ── Ingestion run log ────────────────────────────────────────────
+            async function fetchIngestionLog() {
+                try {
+                    const res = await fetch('/api/v1/admin/ingestion-log?limit=10');
+                    if (!res.ok) return;
+                    const d = await res.json();
+
+                    if (!d.logs || d.logs.length === 0) {
+                        document.getElementById('ingestion_log_wrap').innerHTML =
+                            '<div class="empty">No ingestion runs recorded yet. Runs will appear here after the next scraper execution.</div>';
+                        return;
+                    }
+
+                    const rows = d.logs.map(log => {
+                        const breakdown = Object.entries(log.source_breakdown || {})
+                            .map(([s, n]) => `<span class="pill pill-blue">${s}: ${n}</span>`).join(' ');
+                        const dur = log.duration_seconds != null
+                            ? `${Math.round(log.duration_seconds)}s` : '—';
+                        return `<tr>
+                            <td>${log.run_date}</td>
+                            <td><span class="pill pill-green">+${log.inserted}</span></td>
+                            <td><span class="pill pill-yellow">${log.skipped} skip</span>
+                                <span class="pill pill-red">${log.rejected} rej</span></td>
+                            <td>${breakdown || '—'}</td>
+                            <td style="color:var(--text-muted);">${dur}</td>
+                        </tr>`;
+                    }).join('');
+
+                    document.getElementById('ingestion_log_wrap').innerHTML = `
+                        <table class="log-table">
+                            <thead><tr>
+                                <th>Date</th><th>Inserted</th><th>Skipped / Rejected</th>
+                                <th>By Source</th><th>Duration</th>
+                            </tr></thead>
+                            <tbody>${rows}</tbody>
+                        </table>`;
+                } catch (err) {
+                    console.error('Failed to fetch ingestion log', err);
+                }
+            }
+
+            // ── Boot ─────────────────────────────────────────────────────────
             fetchStats();
+            fetchDailyStats();
+            fetchIngestionLog();
+            setInterval(fetchStats,        30000);
+            setInterval(fetchDailyStats,   60000);
+            setInterval(fetchIngestionLog, 60000);
         </script>
     </body>
     </html>
