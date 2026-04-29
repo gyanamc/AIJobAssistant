@@ -794,22 +794,28 @@ async def scrape_stats():
     with engine.connect() as conn:
         total = conn.execute(text("SELECT COUNT(*) FROM job_listings")).scalar() or 0
         with_embeddings = conn.execute(text("SELECT COUNT(*) FROM job_listings WHERE embedding IS NOT NULL")).scalar() or 0
-        last_job = conn.execute(text("SELECT created_at FROM job_listings ORDER BY created_at DESC LIMIT 1")).fetchone()
-        jobs_last_24h = conn.execute(text("SELECT COUNT(*) FROM job_listings WHERE created_at >= NOW() - INTERVAL '24 hours'")).scalar() or 0
-        jobs_last_7d  = conn.execute(text("SELECT COUNT(*) FROM job_listings WHERE created_at >= NOW() - INTERVAL '7 days'")).scalar() or 0
+        # Detect which timestamp column exists (scraped_at or created_at)
+        cols = conn.execute(text(
+            "SELECT column_name FROM information_schema.columns WHERE table_name='job_listings' AND column_name IN ('scraped_at','created_at')"
+        )).fetchall()
+        ts_col = "scraped_at" if any(c.column_name == "scraped_at" for c in cols) else "created_at"
+
+        last_job = conn.execute(text(f"SELECT {ts_col} AS ts FROM job_listings ORDER BY {ts_col} DESC LIMIT 1")).fetchone()
+        jobs_last_24h = conn.execute(text(f"SELECT COUNT(*) FROM job_listings WHERE {ts_col} >= NOW() - INTERVAL '24 hours'")).scalar() or 0
+        jobs_last_7d  = conn.execute(text(f"SELECT COUNT(*) FROM job_listings WHERE {ts_col} >= NOW() - INTERVAL '7 days'")).scalar() or 0
         newest_jobs = conn.execute(text(
-            "SELECT title, company, source, created_at FROM job_listings ORDER BY created_at DESC LIMIT 5"
+            f"SELECT title, company, source, {ts_col} AS ts FROM job_listings ORDER BY {ts_col} DESC LIMIT 5"
         )).fetchall()
 
     return {
         "total_jobs": total,
         "jobs_with_embeddings": with_embeddings,
         "jobs_without_embeddings": total - with_embeddings,
-        "last_job_inserted_at": str(last_job.created_at) if last_job else None,
+        "last_job_inserted_at": str(last_job.ts) if last_job else None,
         "jobs_added_last_24h": jobs_last_24h,
         "jobs_added_last_7d": jobs_last_7d,
         "newest_5_jobs": [
-            {"title": r.title, "company": r.company, "source": r.source, "inserted_at": str(r.created_at)}
+            {"title": r.title, "company": r.company, "source": r.source, "inserted_at": str(r.ts)}
             for r in newest_jobs
         ]
     }
