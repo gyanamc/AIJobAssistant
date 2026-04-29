@@ -788,6 +788,32 @@ async def backfill_embeddings(batch_size: int = 50):
         "openai_key_set": bool(openai_key)
     }
 
+@app.get("/api/v1/admin/scrape-stats")
+async def scrape_stats():
+    """Show when the last scrape ran and how many jobs were added recently."""
+    with engine.connect() as conn:
+        total = conn.execute(text("SELECT COUNT(*) FROM job_listings")).scalar() or 0
+        with_embeddings = conn.execute(text("SELECT COUNT(*) FROM job_listings WHERE embedding IS NOT NULL")).scalar() or 0
+        last_job = conn.execute(text("SELECT created_at FROM job_listings ORDER BY created_at DESC LIMIT 1")).fetchone()
+        jobs_last_24h = conn.execute(text("SELECT COUNT(*) FROM job_listings WHERE created_at >= NOW() - INTERVAL '24 hours'")).scalar() or 0
+        jobs_last_7d  = conn.execute(text("SELECT COUNT(*) FROM job_listings WHERE created_at >= NOW() - INTERVAL '7 days'")).scalar() or 0
+        newest_jobs = conn.execute(text(
+            "SELECT title, company, source, created_at FROM job_listings ORDER BY created_at DESC LIMIT 5"
+        )).fetchall()
+
+    return {
+        "total_jobs": total,
+        "jobs_with_embeddings": with_embeddings,
+        "jobs_without_embeddings": total - with_embeddings,
+        "last_job_inserted_at": str(last_job.created_at) if last_job else None,
+        "jobs_added_last_24h": jobs_last_24h,
+        "jobs_added_last_7d": jobs_last_7d,
+        "newest_5_jobs": [
+            {"title": r.title, "company": r.company, "source": r.source, "inserted_at": str(r.created_at)}
+            for r in newest_jobs
+        ]
+    }
+
 @app.post("/api/v1/admin/migrate-to-openai-embeddings")
 async def migrate_to_openai_embeddings(batch_size: int = 100):
     """
