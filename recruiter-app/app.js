@@ -1,7 +1,7 @@
 // Recruiter App — AI Job Assistant
-const API_BASE       = 'https://aijobassistant-production.railway.app';
-const SUPABASE_URL   = 'YOUR_SUPABASE_URL';   // replace with your Supabase project URL
-const SUPABASE_ANON  = 'YOUR_SUPABASE_ANON_KEY'; // replace with your Supabase anon key
+const API_BASE       = 'https://aijobassistant-production.up.railway.app';
+const SUPABASE_URL   = 'https://fqwocsqfzzkqbdmzadhz.supabase.co';
+const SUPABASE_ANON  = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZxd29jc3FmenprcWJkbXphZGh6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ1MjE0NjUsImV4cCI6MjA5MDA5NzQ2NX0.EAZUXOhI_Ia-vSuVE1saOnumI_Vt-p4d7ulnOZ9HeC4';
 
 const { createClient } = supabase;
 const sb = createClient(SUPABASE_URL, SUPABASE_ANON);
