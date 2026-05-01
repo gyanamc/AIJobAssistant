@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import {
   View, Text, StyleSheet, FlatList,
-  TouchableOpacity, Alert, TextInput, Modal,
+  TouchableOpacity, Alert, TextInput, Modal, Linking, Clipboard,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import type { StackNavigationProp } from '@react-navigation/stack';
@@ -141,6 +141,17 @@ export default function ApplicationsScreen() {
 
           {/* Actions */}
           <View style={styles.modalActions}>
+            {selected?.apply_url ? (
+              <TouchableOpacity
+                style={styles.applyNowBtn}
+                onPress={() => {
+                  if (selected.cover_letter) Clipboard.setString(selected.cover_letter);
+                  Linking.openURL(selected.apply_url);
+                }}
+              >
+                <Text style={styles.applyNowBtnText}>🚀 Apply Now</Text>
+              </TouchableOpacity>
+            ) : null}
             {selected?.status === 'draft' && !editing && (
               <TouchableOpacity style={styles.editBtn} onPress={() => setEditing(true)}>
                 <Text style={styles.editBtnText}>Edit</Text>
@@ -377,6 +388,18 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: S.sm,
     paddingTop: S.lg,
+  },
+  applyNowBtn: {
+    flex: 1,
+    paddingVertical: 13,
+    borderRadius: R.pill,
+    backgroundColor: C.accent,
+    alignItems: 'center',
+  },
+  applyNowBtnText: {
+    color: C.black,
+    fontWeight: T.bold,
+    fontSize: T.base,
   },
   editBtn: {
     flex: 1,

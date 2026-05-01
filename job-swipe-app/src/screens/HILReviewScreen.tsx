@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
   View, Text, StyleSheet, TextInput,
-  TouchableOpacity, ScrollView,
+  TouchableOpacity, ScrollView, Linking, Clipboard,
 } from 'react-native';
 import { generateCoverLetter } from '../api/jobsApi';
 import { useApplicationStore } from '../store/useApplicationStore';
@@ -89,6 +89,35 @@ export default function HILReviewScreen({ route, navigation }: any) {
     }
   }
 
+  async function handleApplyNow() {
+    // Copy cover letter to clipboard so user can paste it in the application form
+    if (coverLetter) {
+      Clipboard.setString(coverLetter);
+    }
+    // Save as draft first
+    try {
+      const draft: DraftApplication = {
+        id: generateId(),
+        job_id: job.id,
+        job_title: job.title,
+        company: job.company,
+        apply_url: job.apply_url,
+        cover_letter: coverLetter,
+        status: 'draft',
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+      await saveDraft(draft);
+    } catch { /* non-blocking */ }
+    // Open the job URL in browser
+    if (job.apply_url) {
+      showToast('Cover letter copied! Paste it in the form 📋');
+      setTimeout(() => Linking.openURL(job.apply_url), 800);
+    } else {
+      showToast('No apply link available for this job', 'error');
+    }
+  }
+
   if (timedOut && !coverLetter) {
     return (
       <View style={styles.container}>
@@ -159,12 +188,21 @@ export default function HILReviewScreen({ route, navigation }: any) {
 
       {/* Action bar */}
       <View style={styles.actionBar}>
+        {/* Primary CTA: Apply Now — copies cover letter + opens job URL */}
+        <TouchableOpacity
+          style={styles.applyNowBtn}
+          onPress={handleApplyNow}
+          disabled={loading}
+        >
+          <Text style={styles.applyNowBtnText}>🚀 Apply Now</Text>
+        </TouchableOpacity>
+
         {autoApply && (
           <TouchableOpacity
             style={styles.autoApplyBtn}
             onPress={() => handleConfirm('auto-applied')}
           >
-            <Text style={styles.autoApplyBtnText}>⚡ Auto-Apply</Text>
+            <Text style={styles.autoApplyBtnText}>⚡ Mark as Applied</Text>
           </TouchableOpacity>
         )}
         <TouchableOpacity
@@ -286,6 +324,19 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: C.borderSub,
   },
+  applyNowBtn: {
+    paddingVertical: 14,
+    borderRadius: R.pill,
+    backgroundColor: C.accent,
+    alignItems: 'center',
+    ...SHADOW.subtle,
+  },
+  applyNowBtnText: {
+    color: C.black,
+    fontSize: T.base,
+    fontWeight: T.bold,
+    letterSpacing: 0.3,
+  },
   autoApplyBtn: {
     paddingVertical: 14,
     borderRadius: R.pill,
@@ -299,7 +350,6 @@ const styles = StyleSheet.create({
     fontSize: T.base,
     fontWeight: T.bold,
   },
-  primaryBtn: {
     paddingVertical: 14,
     borderRadius: R.pill,
     backgroundColor: C.accent,
