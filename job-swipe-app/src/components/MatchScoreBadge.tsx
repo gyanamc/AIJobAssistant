@@ -4,6 +4,7 @@ import { C, T, R, S } from '../theme';
 
 interface Props {
   score: number | null;
+  scoreType?: 'vector' | 'text' | 'none';
 }
 
 export function getScoreColour(score: number): { text: string; bg: string } {
@@ -12,19 +13,21 @@ export function getScoreColour(score: number): { text: string; bg: string } {
   return               { text: C.red,    bg: C.redDim };
 }
 
-export default function MatchScoreBadge({ score }: Props) {
-  if (score === null || score === undefined) {
+export default function MatchScoreBadge({ score, scoreType }: Props) {
+  // Show real score only for vector matches
+  if (scoreType === 'vector' && score !== null && score !== undefined) {
+    const { text, bg } = getScoreColour(score);
     return (
-      <View style={styles.noScore}>
-        <Text style={styles.noScoreText}>—</Text>
+      <View style={[styles.badge, { backgroundColor: bg }]}>
+        <Text style={[styles.text, { color: text }]}>⚡ {score}%</Text>
       </View>
     );
   }
 
-  const { text, bg } = getScoreColour(score);
+  // No resume uploaded or fallback strategy — show CTA
   return (
-    <View style={[styles.badge, { backgroundColor: bg }]}>
-      <Text style={[styles.text, { color: text }]}>⚡ {score}%</Text>
+    <View style={styles.ctaBadge}>
+      <Text style={styles.ctaText}>+ Add resume</Text>
     </View>
   );
 }
@@ -41,16 +44,19 @@ const styles = StyleSheet.create({
     fontSize: T.xs,
     letterSpacing: 0.3,
   },
-  noScore: {
+  ctaBadge: {
     paddingHorizontal: S.sm,
     paddingVertical: 3,
     borderRadius: R.pill,
     backgroundColor: 'rgba(90,100,117,0.18)',
     alignSelf: 'flex-start',
+    borderWidth: 1,
+    borderColor: 'rgba(90,100,117,0.3)',
+    borderStyle: 'dashed',
   },
-  noScoreText: {
+  ctaText: {
     color: C.textSub,
     fontSize: T.xs,
-    fontWeight: T.bold,
+    fontWeight: T.medium,
   },
 });

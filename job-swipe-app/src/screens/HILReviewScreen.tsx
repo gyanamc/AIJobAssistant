@@ -26,6 +26,12 @@ const TIMEOUT_MS = 30_000;
 
 export default function HILReviewScreen({ route, navigation }: any) {
   const { job, autoApply } = route.params;
+  
+  // Debug logging
+  console.log('HILReviewScreen - job:', JSON.stringify(job, null, 2));
+  console.log('HILReviewScreen - autoApply:', autoApply);
+  console.log('HILReviewScreen - match_score:', job.match_score);
+  
   const { saveDraft } = useApplicationStore();
   const { markAutoApplied } = useJobStore();
   const { toast, showToast, hideToast } = useToast();
@@ -128,7 +134,7 @@ export default function HILReviewScreen({ route, navigation }: any) {
         <View style={styles.jobCard}>
           <View style={styles.jobCardTop}>
             <Text style={styles.jobCompany} numberOfLines={1}>{job.company}</Text>
-            <MatchScoreBadge score={job.match_score} />
+            <MatchScoreBadge score={job.match_score} scoreType={job.score_type} />
           </View>
           <Text style={styles.jobTitle} numberOfLines={2}>{job.title}</Text>
           {autoApply && (

@@ -7,6 +7,7 @@ export interface JobCard {
   description: string;
   excerpt: string;
   match_score: number | null;
+  score_type: 'vector' | 'text' | 'none';
   apply_url: string;
   industry?: string;
   company_size?: string;

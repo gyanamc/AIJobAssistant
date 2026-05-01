@@ -355,6 +355,7 @@ async def jobs_feed(
     rows = []
 
     # ── Strategy 1: Vector similarity (best) ─────────────────────────────────
+    score_type = "none"  # tracks which strategy was used
     if resume_q:
         embedding = await _embed_for_search(resume_q)
         if embedding:
@@ -375,6 +376,8 @@ async def jobs_feed(
                         ORDER BY embedding <=> :emb::vector
                         LIMIT :lim
                     """), params).fetchall()
+                if rows:
+                    score_type = "vector"
             except Exception:
                 rows = []
 
@@ -400,6 +403,8 @@ async def jobs_feed(
                     ORDER BY match_score DESC, RANDOM()
                     LIMIT :lim
                 """), params).fetchall()
+            if rows:
+                score_type = "text"
         except Exception:
             rows = []
 
@@ -419,6 +424,7 @@ async def jobs_feed(
                     FROM job_listings {excl_clause}
                     ORDER BY RANDOM() LIMIT :lim
                 """), params).fetchall()
+            score_type = "none"
         except Exception as e:
             raise HTTPException(500, f"Failed to fetch jobs: {str(e)}")
 
@@ -437,7 +443,9 @@ async def jobs_feed(
             "company_size": row.company_size or "",
             "job_level": row.job_level or "",
             "job_type": row.job_type or "",
-            "match_score": int(row.match_score) if getattr(row, 'match_score', None) is not None else 60,
+            # Only expose a real score for vector matches; null triggers "Add resume" CTA in the app
+            "match_score": int(row.match_score) if (score_type == "vector" and getattr(row, 'match_score', None) is not None) else None,
+            "score_type": score_type,
         })
 
     return {"jobs": jobs, "total": len(jobs)}

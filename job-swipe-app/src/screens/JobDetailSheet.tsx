@@ -23,7 +23,7 @@ export default function JobDetailSheet({ route, navigation }: any) {
         <View style={styles.headerCard}>
           <View style={styles.headerTop}>
             <Text style={styles.company} numberOfLines={1}>{job.company}</Text>
-            <MatchScoreBadge score={job.match_score} />
+            <MatchScoreBadge score={job.match_score} scoreType={job.score_type} />
           </View>
           <Text style={styles.title} numberOfLines={3}>{job.title}</Text>
 

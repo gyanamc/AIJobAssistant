@@ -21,11 +21,18 @@ export function useApplicationFlow(navigation: any) {
     const threshold = prefs?.auto_apply_threshold ?? 80;
     const score = job.match_score ?? 0;
 
+    // Debug logging
+    console.log('useApplicationFlow - job:', JSON.stringify(job, null, 2));
+    console.log('useApplicationFlow - threshold:', threshold);
+    console.log('useApplicationFlow - score:', score);
+    console.log('useApplicationFlow - score_type:', job.score_type);
+    console.log('useApplicationFlow - autoApply will be:', score >= threshold);
+
     // Record swipe
     swipeRight(job);
 
-    // Route based on score vs threshold
-    const autoApply = score >= threshold;
+    // Auto-apply only valid for real vector similarity scores — not text/random fallbacks
+    const autoApply = job.score_type === 'vector' && score >= threshold;
     navigation.navigate('HILReview', { job, autoApply });
   }
 
