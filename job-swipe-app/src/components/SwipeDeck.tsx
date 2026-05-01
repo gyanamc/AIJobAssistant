@@ -52,16 +52,31 @@ function SwipeCard<T>({
 }) {
   const translateX = useSharedValue(0);
   const translateY = useSharedValue(0);
+  // Use a shared value for isTop so the worklet always reads the latest value
+  const isTopSV = useSharedValue(isTop);
+  const disabledSV = useSharedValue(disabled ?? false);
+
+  // Keep shared values in sync with props
+  React.useEffect(() => { isTopSV.value = isTop; }, [isTop]);
+  React.useEffect(() => { disabledSV.value = disabled ?? false; }, [disabled]);
+
+  // Reset position when this card becomes the new top card
+  React.useEffect(() => {
+    if (isTop) {
+      translateX.value = 0;
+      translateY.value = 0;
+    }
+  }, [isTop]);
 
   const gestureHandler = useAnimatedGestureHandler<PanGestureHandlerGestureEvent>({
     onActive: (event) => {
-      if (!isTop || disabled) return;
+      if (!isTopSV.value || disabledSV.value) return;
       translateX.value = event.translationX;
       translateY.value = event.translationY * 0.15;
       activeTranslateX.value = event.translationX;
     },
     onEnd: (event) => {
-      if (!isTop || disabled) return;
+      if (!isTopSV.value || disabledSV.value) return;
       if (event.translationX > SWIPE_THRESHOLD) {
         translateX.value = withTiming(SCREEN_WIDTH * 1.5, { duration: 240 });
         activeTranslateX.value = withTiming(0, { duration: 240 });
