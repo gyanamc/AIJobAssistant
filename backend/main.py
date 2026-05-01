@@ -399,7 +399,7 @@ async def jobs_feed(
                                    plainto_tsquery('english', :resume_q)
                                ) * 120)::integer
                            )) AS match_score
-                    FROM job_listings {excl_clause}
+                    FROM job_listings WHERE 1=1 {excl_clause}
                     ORDER BY match_score DESC, RANDOM()
                     LIMIT :lim
                 """), params).fetchall()
@@ -421,7 +421,7 @@ async def jobs_feed(
                            LEFT(description, 200) AS excerpt, apply_url,
                            industry, company_size, job_level, job_type,
                            (55 + ABS(HASHTEXT(id::text)) % 36)::integer AS match_score
-                    FROM job_listings {excl_clause}
+                    FROM job_listings WHERE 1=1 {excl_clause}
                     ORDER BY RANDOM() LIMIT :lim
                 """), params).fetchall()
             score_type = "none"
