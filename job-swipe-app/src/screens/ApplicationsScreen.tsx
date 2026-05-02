@@ -1,10 +1,14 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useMemo } from 'react';
 import {
   View, Text, StyleSheet, FlatList,
-  TouchableOpacity, Alert, TextInput, Modal, Linking, Clipboard,
+  TouchableOpacity, Alert, TextInput, Linking, Clipboard,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import type { StackNavigationProp } from '@react-navigation/stack';
+import Swipeable from 'react-native-gesture-handler/Swipeable';
+import BottomSheet, { BottomSheetView, BottomSheetBackdrop } from '@gorhom/bottom-sheet';
+import { Trash2 } from 'lucide-react-native';
+
 import type { RootStackParamList } from '../navigation/AppNavigator';
 import { useApplicationStore } from '../store/useApplicationStore';
 import { useAuthStore } from '../store/useAuthStore';
@@ -17,14 +21,28 @@ export default function ApplicationsScreen() {
   const navigation = useNavigation<NavigationProp>();
   const { drafts, deleteDraft, updateDraft } = useApplicationStore();
   const isAuthenticated = useAuthStore(s => s.isAuthenticated);
+  
   const [selected, setSelected] = useState<DraftApplication | null>(null);
   const [editing, setEditing] = useState(false);
   const [editText, setEditText] = useState('');
+
+  // Bottom Sheet logic
+  const bottomSheetRef = useRef<BottomSheet>(null);
+  const snapPoints = useMemo(() => ['50%', '90%'], []);
 
   function openDraft(draft: DraftApplication) {
     setSelected(draft);
     setEditText(draft.cover_letter);
     setEditing(false);
+    bottomSheetRef.current?.expand();
+  }
+
+  function handleCloseSheet() {
+    bottomSheetRef.current?.close();
+    setTimeout(() => {
+      setSelected(null);
+      setEditing(false);
+    }, 300);
   }
 
   function handleDelete(id: string) {
@@ -38,10 +56,9 @@ export default function ApplicationsScreen() {
     if (!selected) return;
     await updateDraft(selected.id, { cover_letter: editText });
     setEditing(false);
-    setSelected(null);
+    setSelected({ ...selected, cover_letter: editText });
   }
 
-  const isAutoApplied = (status: string) => status === 'auto-applied';
   const isApplied = (status: string) => status === 'applied' || status === 'auto-applied';
 
   const getStatusBadge = (status: string) => {
@@ -50,35 +67,41 @@ export default function ApplicationsScreen() {
     return                                { label: 'Draft',           style: styles.badgeSurface, textStyle: styles.statusDefaultText };
   };
 
+  const renderRightActions = (id: string) => (
+    <View style={styles.deleteActionContainer}>
+      <TouchableOpacity style={styles.deleteAction} onPress={() => handleDelete(id)}>
+        <Trash2 color={C.white} size={24} />
+      </TouchableOpacity>
+    </View>
+  );
+
   const renderItem = ({ item }: { item: DraftApplication }) => (
-    <TouchableOpacity style={styles.card} onPress={() => openDraft(item)} activeOpacity={0.85}>
-      {/* Left accent bar */}
-      <View style={[styles.accentBar, isApplied(item.status) ? styles.accentPurple : styles.accentGreen]} />
-
-      <View style={styles.cardInner}>
-        <View style={styles.cardTop}>
-          <View style={{ flex: 1, marginRight: S.sm }}>
-            <Text style={styles.cardCompany} numberOfLines={1}>{item.company}</Text>
-            <Text style={styles.cardTitle} numberOfLines={1}>{item.job_title}</Text>
+    <Swipeable renderRightActions={() => renderRightActions(item.id)} overshootRight={false}>
+      <TouchableOpacity style={styles.card} onPress={() => openDraft(item)} activeOpacity={0.85}>
+        <View style={[styles.accentBar, isApplied(item.status) ? styles.accentPurple : styles.accentGreen]} />
+        <View style={styles.cardInner}>
+          <View style={styles.cardTop}>
+            <View style={{ flex: 1, marginRight: S.sm }}>
+              <Text style={styles.cardCompany} numberOfLines={1}>{item.company}</Text>
+              <Text style={styles.cardTitle} numberOfLines={1}>{item.job_title}</Text>
+            </View>
+            {(() => {
+              const badge = getStatusBadge(item.status);
+              return (
+                <View style={[styles.statusBadge, badge.style]}>
+                  <Text style={[styles.statusText, badge.textStyle]}>{badge.label}</Text>
+                </View>
+              );
+            })()}
           </View>
-          {(() => {
-            const badge = getStatusBadge(item.status);
-            return (
-              <View style={[styles.statusBadge, badge.style]}>
-                <Text style={[styles.statusText, badge.textStyle]}>{badge.label}</Text>
-              </View>
-            );
-          })()}
-        </View>
 
-        <View style={styles.cardFooter}>
-          <Text style={styles.cardDate}>{new Date(item.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}</Text>
-          <TouchableOpacity onPress={() => handleDelete(item.id)}>
-            <Text style={styles.deleteText}>Remove</Text>
-          </TouchableOpacity>
+          <View style={styles.cardFooter}>
+            <Text style={styles.cardDate}>{new Date(item.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}</Text>
+            <Text style={styles.swipeHint}>← swipe to delete</Text>
+          </View>
         </View>
-      </View>
-    </TouchableOpacity>
+      </TouchableOpacity>
+    </Swipeable>
   );
 
   return (
@@ -95,7 +118,6 @@ export default function ApplicationsScreen() {
 
       {drafts.length === 0 ? (
         !isAuthenticated ? (
-          // Guest empty state
           <View style={styles.empty}>
             <Text style={styles.emptyGlyph}>◉</Text>
             <Text style={styles.emptyTitle}>Track your applications</Text>
@@ -111,7 +133,6 @@ export default function ApplicationsScreen() {
             </TouchableOpacity>
           </View>
         ) : (
-          // Authenticated empty state
           <View style={styles.empty}>
             <Text style={styles.emptyGlyph}>◎</Text>
             <Text style={styles.emptyTitle}>No applications yet</Text>
@@ -128,56 +149,67 @@ export default function ApplicationsScreen() {
         />
       )}
 
-      {/* Detail modal */}
-      <Modal visible={!!selected} animationType="slide" presentationStyle="pageSheet">
-        <View style={styles.modal}>
-          <View style={styles.modalHandle} />
-
-          <Text style={styles.modalCompany} numberOfLines={1}>{selected?.company}</Text>
-          <Text style={styles.modalTitle} numberOfLines={2}>{selected?.job_title}</Text>
-
-          <Text style={styles.sectionLabel}>Cover Letter</Text>
-
-          {editing ? (
-            <TextInput
-              style={styles.editor}
-              multiline
-              value={editText}
-              onChangeText={setEditText}
-            />
-          ) : (
-            <Text style={styles.coverLetterText}>{selected?.cover_letter || 'No cover letter saved.'}</Text>
+      {/* Bottom Sheet */}
+      {selected && (
+        <BottomSheet
+          ref={bottomSheetRef}
+          index={0}
+          snapPoints={snapPoints}
+          enablePanDownToClose
+          onClose={handleCloseSheet}
+          backgroundStyle={styles.bottomSheetBg}
+          handleIndicatorStyle={styles.handleIndicator}
+          backdropComponent={props => (
+            <BottomSheetBackdrop {...props} appearsOnIndex={0} disappearsOnIndex={-1} />
           )}
+        >
+          <BottomSheetView style={styles.sheetContent}>
+            <Text style={styles.modalCompany} numberOfLines={1}>{selected.company}</Text>
+            <Text style={styles.modalTitle} numberOfLines={2}>{selected.job_title}</Text>
 
-          {/* Actions */}
-          <View style={styles.modalActions}>
-            {selected?.apply_url ? (
-              <TouchableOpacity
-                style={styles.applyNowBtn}
-                onPress={() => {
-                  if (selected.cover_letter) Clipboard.setString(selected.cover_letter);
-                  Linking.openURL(selected.apply_url);
-                }}
-              >
-                <Text style={styles.applyNowBtnText}>🚀 Apply Now</Text>
-              </TouchableOpacity>
-            ) : null}
-            {selected?.status === 'draft' && !editing && (
-              <TouchableOpacity style={styles.editBtn} onPress={() => setEditing(true)}>
-                <Text style={styles.editBtnText}>Edit</Text>
-              </TouchableOpacity>
+            <Text style={styles.sectionLabel}>Cover Letter</Text>
+
+            {editing ? (
+              <TextInput
+                style={styles.editor}
+                multiline
+                value={editText}
+                onChangeText={setEditText}
+                autoFocus
+              />
+            ) : (
+              <View style={styles.coverLetterBox}>
+                <Text style={styles.coverLetterText}>{selected.cover_letter || 'No cover letter saved.'}</Text>
+              </View>
             )}
-            {editing && (
-              <TouchableOpacity style={styles.saveBtn} onPress={handleSaveEdit}>
-                <Text style={styles.saveBtnText}>Save</Text>
-              </TouchableOpacity>
-            )}
-            <TouchableOpacity style={styles.closeBtn} onPress={() => setSelected(null)}>
-              <Text style={styles.closeBtnText}>Close</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
+
+            {/* Actions */}
+            <View style={styles.modalActions}>
+              {selected.apply_url ? (
+                <TouchableOpacity
+                  style={styles.applyNowBtn}
+                  onPress={() => {
+                    if (selected.cover_letter) Clipboard.setString(selected.cover_letter);
+                    Linking.openURL(selected.apply_url);
+                  }}
+                >
+                  <Text style={styles.applyNowBtnText}>🚀 Apply Now</Text>
+                </TouchableOpacity>
+              ) : null}
+              {selected.status === 'draft' && !editing && (
+                <TouchableOpacity style={styles.editBtn} onPress={() => setEditing(true)}>
+                  <Text style={styles.editBtnText}>Edit</Text>
+                </TouchableOpacity>
+              )}
+              {editing && (
+                <TouchableOpacity style={styles.saveBtn} onPress={handleSaveEdit}>
+                  <Text style={styles.saveBtnText}>Save</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          </BottomSheetView>
+        </BottomSheet>
+      )}
     </View>
   );
 }
@@ -197,7 +229,7 @@ const styles = StyleSheet.create({
   },
   headerTitle: {
     fontSize: T.xl,
-    fontWeight: T.black_w,
+    fontWeight: '800',
     color: C.text,
     letterSpacing: -0.3,
   },
@@ -209,7 +241,7 @@ const styles = StyleSheet.create({
   },
   countText: {
     fontSize: T.xs,
-    fontWeight: T.bold,
+    fontWeight: '700',
     color: C.accent,
   },
 
@@ -217,7 +249,6 @@ const styles = StyleSheet.create({
   list: {
     paddingHorizontal: S.xl,
     paddingBottom: S.xxxl,
-    gap: S.sm,
   },
 
   // Card
@@ -228,6 +259,7 @@ const styles = StyleSheet.create({
     borderColor: C.border,
     flexDirection: 'row',
     overflow: 'hidden',
+    marginBottom: S.sm,
     ...SHADOW.subtle,
   },
   accentBar: {
@@ -250,14 +282,14 @@ const styles = StyleSheet.create({
   },
   cardCompany: {
     fontSize: T.xs,
-    fontWeight: T.medium,
+    fontWeight: '500',
     color: C.textSub,
     letterSpacing: 0.3,
     marginBottom: 2,
   },
   cardTitle: {
     fontSize: T.base,
-    fontWeight: T.semibold,
+    fontWeight: '600',
     color: C.text,
   },
   statusBadge: {
@@ -281,7 +313,7 @@ const styles = StyleSheet.create({
   },
   statusText: {
     fontSize: T.xs,
-    fontWeight: T.bold,
+    fontWeight: '700',
   },
   statusDefaultText: {
     color: C.textSub,
@@ -301,10 +333,24 @@ const styles = StyleSheet.create({
     fontSize: T.xs,
     color: C.textDim,
   },
-  deleteText: {
+  swipeHint: {
     fontSize: T.xs,
-    color: C.red,
-    fontWeight: T.medium,
+    color: C.textDim,
+    fontStyle: 'italic',
+  },
+
+  // Swipe action
+  deleteActionContainer: {
+    width: 80,
+    marginBottom: S.sm,
+    marginLeft: S.sm,
+  },
+  deleteAction: {
+    flex: 1,
+    backgroundColor: C.red,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderRadius: R.lg,
   },
 
   // Empty
@@ -322,7 +368,7 @@ const styles = StyleSheet.create({
   },
   emptyTitle: {
     fontSize: T.lg,
-    fontWeight: T.semibold,
+    fontWeight: '600',
     color: C.text,
   },
   emptyBody: {
@@ -341,51 +387,56 @@ const styles = StyleSheet.create({
   },
   signInButtonText: {
     fontSize: T.base,
-    fontWeight: T.bold,
+    fontWeight: '700',
     color: C.black,
     letterSpacing: 0.2,
   },
 
-  // Modal
-  modal: {
-    flex: 1,
-    backgroundColor: C.bg,
-    paddingHorizontal: S.xl,
-    paddingBottom: 36,
+  // Bottom Sheet
+  bottomSheetBg: {
+    backgroundColor: '#1A2333',
   },
-  modalHandle: {
-    width: 36,
-    height: 3,
-    backgroundColor: C.surface3,
-    borderRadius: R.pill,
-    alignSelf: 'center',
-    marginTop: 10,
-    marginBottom: S.xl,
+  handleIndicator: {
+    backgroundColor: C.textDim,
+    width: 40,
+  },
+  sheetContent: {
+    flex: 1,
+    paddingHorizontal: S.xl,
+    paddingTop: S.sm,
+    paddingBottom: 36,
   },
   modalCompany: {
     fontSize: T.sm,
-    fontWeight: T.medium,
+    fontWeight: '500',
     color: C.textSub,
     letterSpacing: 0.3,
     marginBottom: S.xs,
   },
   modalTitle: {
     fontSize: T.xl,
-    fontWeight: T.bold,
+    fontWeight: '700',
     color: C.text,
-    lineHeight: T.xl * 1.3,
+    lineHeight: 24,
     marginBottom: S.xl,
   },
   sectionLabel: {
     fontSize: T.xs,
-    fontWeight: T.bold,
+    fontWeight: '700',
     color: C.textSub,
     textTransform: 'uppercase',
     letterSpacing: 1.2,
     marginBottom: S.sm,
   },
-  coverLetterText: {
+  coverLetterBox: {
     flex: 1,
+    backgroundColor: C.surface,
+    padding: S.lg,
+    borderRadius: R.md,
+    borderWidth: 1,
+    borderColor: C.border,
+  },
+  coverLetterText: {
     color: C.textSub,
     fontSize: T.base,
     lineHeight: T.loose,
@@ -394,7 +445,7 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: C.surface,
     borderWidth: 1,
-    borderColor: C.border,
+    borderColor: C.accent,
     color: C.text,
     borderRadius: R.md,
     padding: S.lg,
@@ -413,10 +464,11 @@ const styles = StyleSheet.create({
     borderRadius: R.pill,
     backgroundColor: C.accent,
     alignItems: 'center',
+    ...SHADOW.subtle,
   },
   applyNowBtnText: {
     color: C.black,
-    fontWeight: T.bold,
+    fontWeight: '700',
     fontSize: T.base,
   },
   editBtn: {
@@ -429,7 +481,7 @@ const styles = StyleSheet.create({
   },
   editBtnText: {
     color: C.text,
-    fontWeight: T.semibold,
+    fontWeight: '600',
     fontSize: T.base,
   },
   saveBtn: {
@@ -441,21 +493,7 @@ const styles = StyleSheet.create({
   },
   saveBtnText: {
     color: C.black,
-    fontWeight: T.bold,
-    fontSize: T.base,
-  },
-  closeBtn: {
-    flex: 1,
-    paddingVertical: 13,
-    borderRadius: R.pill,
-    backgroundColor: C.surface2,
-    borderWidth: 1,
-    borderColor: C.border,
-    alignItems: 'center',
-  },
-  closeBtnText: {
-    color: C.textSub,
-    fontWeight: T.medium,
+    fontWeight: '700',
     fontSize: T.base,
   },
 });

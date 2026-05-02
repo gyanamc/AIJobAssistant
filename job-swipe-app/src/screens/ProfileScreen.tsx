@@ -1,11 +1,17 @@
 import React, { useState, useEffect } from 'react';
 import {
   View, Text, StyleSheet, ScrollView,
-  TouchableOpacity, TextInput, Alert,
+  TouchableOpacity, TextInput, Alert, Dimensions,
 } from 'react-native';
 import DocumentPicker from 'react-native-document-picker';
 import { useNavigation } from '@react-navigation/native';
 import type { StackNavigationProp } from '@react-navigation/stack';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+import Animated, { 
+  useSharedValue, useAnimatedStyle, runOnJS, withTiming, useAnimatedProps 
+} from 'react-native-reanimated';
+import Svg, { Circle } from 'react-native-svg';
+
 import type { RootStackParamList } from '../navigation/AppNavigator';
 import { useAuthStore } from '../store/useAuthStore';
 import { useJobStore } from '../store/useJobStore';
@@ -17,7 +23,87 @@ import Toast from '../components/Toast';
 import type { ResumeSummary, UserPreferences } from '../types';
 import { C, T, R, S, SHADOW } from '../theme';
 
-const THRESHOLD_OPTIONS = [70, 75, 80, 85, 90, 95];
+const { width } = Dimensions.get('window');
+const SLIDER_WIDTH = width - S.xl * 2 - S.lg * 2 - 24; // screen width - padding
+
+const AnimatedCircle = Animated.createAnimatedComponent(Circle);
+
+function ProfileStrengthRing({ score }: { score: number }) {
+  const progress = useSharedValue(0);
+  const radius = 24;
+  const circumference = 2 * Math.PI * radius;
+
+  useEffect(() => {
+    progress.value = withTiming(score / 100, { duration: 1500 });
+  }, [score]);
+
+  const animatedProps = useAnimatedProps(() => ({
+    strokeDashoffset: circumference * (1 - progress.value)
+  }));
+
+  return (
+    <View style={styles.ringContainer}>
+      <Svg width={56} height={56}>
+        <Circle cx={28} cy={28} r={radius} stroke={C.border} strokeWidth={4} fill="none" />
+        <AnimatedCircle 
+          cx={28} cy={28} r={radius} 
+          stroke={C.accent} strokeWidth={4} fill="none" 
+          strokeDasharray={circumference} 
+          animatedProps={animatedProps} 
+          strokeLinecap="round" 
+          transform="rotate(-90 28 28)"
+        />
+      </Svg>
+      <View style={styles.ringTextContainer}>
+        <Text style={styles.ringText}>{score}%</Text>
+      </View>
+    </View>
+  );
+}
+
+function CustomSlider({ value, onValueChange }: { value: number, onValueChange: (v: number) => void }) {
+  // Value ranges from 50 to 100
+  const min = 50;
+  const max = 100;
+  const range = max - min;
+  
+  const initialX = ((value - min) / range) * SLIDER_WIDTH;
+  const translateX = useSharedValue(initialX);
+
+  const pan = Gesture.Pan()
+    .onChange((e) => {
+      let newX = translateX.value + e.changeX;
+      if (newX < 0) newX = 0;
+      if (newX > SLIDER_WIDTH) newX = SLIDER_WIDTH;
+      translateX.value = newX;
+      
+      const newValue = Math.round(min + (newX / SLIDER_WIDTH) * range);
+      runOnJS(onValueChange)(newValue);
+    });
+
+  const thumbStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: translateX.value }]
+  }));
+  
+  const trackStyle = useAnimatedStyle(() => ({
+    width: translateX.value + 12
+  }));
+
+  return (
+    <View style={styles.sliderWrapper}>
+      <View style={styles.sliderBgTrack} />
+      <Animated.View style={[styles.sliderFillTrack, trackStyle]} />
+      <GestureDetector gesture={pan}>
+        <Animated.View style={[styles.sliderThumb, thumbStyle]} />
+      </GestureDetector>
+      
+      <View style={styles.sliderLabels}>
+        <Text style={styles.sliderLabelText}>50%</Text>
+        <Text style={styles.sliderLabelText}>100%</Text>
+      </View>
+    </View>
+  );
+}
 
 type ProfileScreenNavigationProp = StackNavigationProp<RootStackParamList>;
 
@@ -89,6 +175,9 @@ export default function ProfileScreen() {
     showToast('Preferences saved');
   }
 
+  // Determine a dummy score based on resume completeness
+  const resumeScore = resume ? Math.min(100, 40 + (resume.skills?.length || 0) * 5 + (resume.experience_summary ? 20 : 0)) : 0;
+
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
       <Toast message={toast?.message ?? ''} type={toast?.type} visible={!!toast} onDismiss={hideToast} />
@@ -132,9 +221,12 @@ export default function ProfileScreen() {
       <View style={styles.group}>
         {resume && (
           <>
-            <View style={styles.row}>
-              <Text style={styles.rowLabel}>{resume.name || 'Resume'}</Text>
-              <View style={styles.greenDot} />
+            <View style={[styles.row, { paddingVertical: S.lg }]}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.rowLabel}>{resume.name || 'Resume'}</Text>
+                <Text style={[styles.rowValue, { textAlign: 'left', marginTop: 4 }]}>Parsed successfully</Text>
+              </View>
+              <ProfileStrengthRing score={resumeScore} />
             </View>
             {resume.skills.length > 0 && (
               <>
@@ -173,26 +265,20 @@ export default function ProfileScreen() {
         </View>
       </View>
 
-      {/* Threshold */}
+      {/* Threshold Slider */}
       <Text style={styles.sectionLabel}>Auto-Apply Threshold</Text>
       <View style={styles.group}>
-        <View style={[styles.row, { flexDirection: 'column', alignItems: 'flex-start', gap: S.md }]}>
+        <View style={{ padding: S.lg }}>
           <Text style={styles.rowLabel}>
-            Current: <Text style={{ color: C.accent }}>{prefs.auto_apply_threshold}%</Text>
+            Current: <Text style={{ color: C.accent, fontWeight: '800' }}>{prefs.auto_apply_threshold}%</Text>
           </Text>
-          <View style={styles.thresholdRow}>
-            {THRESHOLD_OPTIONS.map(val => (
-              <TouchableOpacity
-                key={val}
-                style={[styles.thresholdChip, prefs.auto_apply_threshold === val && styles.thresholdChipOn]}
-                onPress={() => setPrefs(p => ({ ...p, auto_apply_threshold: val }))}
-              >
-                <Text style={[styles.thresholdText, prefs.auto_apply_threshold === val && styles.thresholdTextOn]}>
-                  {val}%
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
+          <Text style={{ fontSize: T.xs, color: C.textSub, marginTop: 4, marginBottom: S.xl }}>
+            Only auto-apply to jobs that match your profile this well.
+          </Text>
+          <CustomSlider 
+            value={prefs.auto_apply_threshold} 
+            onValueChange={(v) => setPrefs(p => ({ ...p, auto_apply_threshold: v }))} 
+          />
         </View>
       </View>
 
@@ -211,7 +297,7 @@ export default function ProfileScreen() {
         </TouchableOpacity>
       </View>
 
-      <Text style={styles.footerText}>AntiGravity · v3.0</Text>
+      <Text style={styles.footerText}>AntiGravity · Premium</Text>
     </ScrollView>
   );
 }
@@ -219,26 +305,36 @@ export default function ProfileScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: C.bg },
   content:   { paddingTop: 56, paddingHorizontal: S.xl, paddingBottom: 56 },
-  pageTitle: { fontSize: T.xl, fontWeight: T.black_w, color: C.text, marginBottom: S.xl, letterSpacing: -0.3 },
-  sectionLabel: { fontSize: T.xs, fontWeight: T.bold, color: C.textSub, textTransform: 'uppercase', letterSpacing: 1.2, marginBottom: S.sm, marginTop: S.xl },
+  pageTitle: { fontSize: T.xl, fontWeight: '800', color: C.text, marginBottom: S.xl, letterSpacing: -0.3 },
+  sectionLabel: { fontSize: T.xs, fontWeight: '700', color: C.textSub, textTransform: 'uppercase', letterSpacing: 1.2, marginBottom: S.sm, marginTop: S.xl },
   group:  { backgroundColor: C.surface2, borderRadius: R.lg, borderWidth: 1, borderColor: C.border, overflow: 'hidden' },
   sep:    { height: 1, backgroundColor: C.borderSub, marginHorizontal: S.lg },
   row:    { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: S.lg, paddingVertical: S.md, gap: S.sm },
-  rowLabel: { fontSize: T.base, color: C.text, fontWeight: T.medium, flex: 1 },
+  rowLabel: { fontSize: T.base, color: C.text, fontWeight: '500', flex: 1 },
   rowValue: { fontSize: T.sm, color: C.textSub, maxWidth: '55%', textAlign: 'right' },
-  greenDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: C.accent },
+  
+  // Ring
+  ringContainer: { width: 56, height: 56, justifyContent: 'center', alignItems: 'center' },
+  ringTextContainer: { position: 'absolute', justifyContent: 'center', alignItems: 'center' },
+  ringText: { fontSize: T.xs, color: C.text, fontWeight: '800' },
+  
   chip:    { paddingHorizontal: S.sm, paddingVertical: 3, borderRadius: R.pill, backgroundColor: C.surface3 },
-  chipText:{ fontSize: T.xs, color: C.textSub, fontWeight: T.medium },
+  chipText:{ fontSize: T.xs, color: C.textSub, fontWeight: '500' },
   chipMore:{ fontSize: T.xs, color: C.textDim, alignSelf: 'center' },
+  
   inputRow: { paddingHorizontal: S.lg, paddingVertical: S.md, gap: S.xs },
-  inputLabel: { fontSize: T.xs, fontWeight: T.bold, color: C.textSub, textTransform: 'uppercase', letterSpacing: 0.8 },
+  inputLabel: { fontSize: T.xs, fontWeight: '700', color: C.textSub, textTransform: 'uppercase', letterSpacing: 0.8 },
   input: { color: C.text, fontSize: T.base, paddingVertical: S.xs },
-  thresholdRow: { flexDirection: 'row', gap: S.xs, flexWrap: 'wrap' },
-  thresholdChip: { paddingHorizontal: S.md, paddingVertical: S.xs + 2, borderRadius: R.pill, backgroundColor: C.surface3, borderWidth: 1, borderColor: C.border },
-  thresholdChipOn: { backgroundColor: C.accentDim, borderColor: C.accent },
-  thresholdText: { fontSize: T.sm, color: C.textSub, fontWeight: T.semibold },
-  thresholdTextOn: { color: C.accent },
-  saveBtn: { marginTop: S.xl, paddingVertical: 15, borderRadius: R.pill, backgroundColor: C.accent, alignItems: 'center', ...SHADOW.subtle },
-  saveBtnText: { color: C.black, fontSize: T.base, fontWeight: T.bold },
+  
+  // Slider
+  sliderWrapper: { position: 'relative', height: 40, justifyContent: 'center', marginHorizontal: 12 },
+  sliderBgTrack: { position: 'absolute', height: 6, width: '100%', backgroundColor: C.surface3, borderRadius: 3 },
+  sliderFillTrack: { position: 'absolute', height: 6, backgroundColor: C.accent, borderRadius: 3 },
+  sliderThumb: { position: 'absolute', width: 24, height: 24, borderRadius: 12, backgroundColor: C.white, ...SHADOW.card },
+  sliderLabels: { flexDirection: 'row', justifyContent: 'space-between', position: 'absolute', width: '100%', bottom: -20 },
+  sliderLabelText: { fontSize: 10, color: C.textDim, fontWeight: '600' },
+  
+  saveBtn: { marginTop: S.xl, paddingVertical: 15, borderRadius: R.pill, backgroundColor: C.accent, alignItems: 'center', ...SHADOW.elevated },
+  saveBtnText: { color: C.black, fontSize: T.base, fontWeight: '700' },
   footerText: { textAlign: 'center', fontSize: T.xs, color: C.textDim, marginTop: S.xxl, letterSpacing: 0.5 },
 });

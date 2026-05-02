@@ -1,5 +1,7 @@
 import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Image } from 'react-native';
+import { Flag, ExternalLink, MapPin, Calendar, BarChart, Monitor, Briefcase, Building2, Info } from 'lucide-react-native';
+import Svg, { Defs, LinearGradient, Stop, Rect } from 'react-native-svg';
 import MatchScoreBadge from './MatchScoreBadge';
 import type { JobCard as JobCardType } from '../types';
 import { C, T, R, S, SHADOW } from '../theme';
@@ -24,67 +26,75 @@ export default function JobCard({ job, onTap }: Props) {
       {/* Top row: Match score on the right */}
       <View style={styles.topRow}>
         <View style={styles.topLeftIcons}>
-           <Text style={styles.iconText}>⚑</Text>
-           <Text style={styles.iconText}>🔗</Text>
+           <Flag size={20} color={C.textDim} />
+           <ExternalLink size={20} color={C.textDim} />
         </View>
         <MatchScoreBadge score={job.match_score} />
       </View>
 
-      {/* Center Top: Company Logo Placeholder */}
-      <View style={styles.logoWrapper}>
+      {/* Header section: Logo + Title + Company (left aligned) */}
+      <View style={styles.headerSection}>
         <View style={styles.logoContainer}>
+          <Svg height="100%" width="100%" style={StyleSheet.absoluteFill}>
+            <Defs>
+              <LinearGradient id="grad" x1="0" y1="0" x2="1" y2="1">
+                <Stop offset="0" stopColor={C.accent} stopOpacity="0.8" />
+                <Stop offset="1" stopColor="#2563EB" stopOpacity="0.8" />
+              </LinearGradient>
+            </Defs>
+            <Rect x="0" y="0" width="100%" height="100%" fill="url(#grad)" />
+          </Svg>
           <Text style={styles.logoText}>{companyInitial}</Text>
+        </View>
+        
+        <View style={styles.titleWrapper}>
+          <Text style={styles.company} numberOfLines={1}>{job.company || 'Unknown Company'}</Text>
+          <Text style={styles.title} numberOfLines={3}>{job.title}</Text>
         </View>
       </View>
 
-      {/* Company Name & Excerpt */}
-      <Text style={styles.company} numberOfLines={2}>{job.company || 'Unknown Company'}</Text>
+      {/* Excerpt */}
       <Text style={styles.excerpt} numberOfLines={3}>{job.excerpt}</Text>
-
-      {/* Job Title */}
-      <Text style={styles.title} numberOfLines={2}>{job.title}</Text>
 
       {/* Meta Chips */}
       <View style={styles.metaContainer}>
         <View style={styles.metaRow}>
           <View style={styles.chipTransparent}>
-            <Text style={styles.chipTextTransparent}>📍 {job.location || 'Remote'}</Text>
+            <MapPin size={14} color={C.textSub} />
+            <Text style={styles.chipTextTransparent}>{job.location || 'Remote'}</Text>
           </View>
           <View style={styles.chipTransparent}>
-            <Text style={styles.chipTextTransparent}>🗓️ Posted on {sourceLabel}</Text>
+            <Calendar size={14} color={C.textSub} />
+            <Text style={styles.chipTextTransparent}>Posted on {sourceLabel}</Text>
           </View>
         </View>
         
-        {(job.job_level || job.job_type) && (
-          <View style={styles.metaRow}>
-            {job.job_level && (
-              <View style={styles.chip}>
-                <Text style={styles.chipText}>📊 {job.job_level}</Text>
-              </View>
-            )}
-            {job.job_type && (
-              <View style={styles.chip}>
-                <Text style={styles.chipText}>💻 {job.job_type}</Text>
-              </View>
-            )}
-          </View>
-        )}
-        
-        {job.industry && (
-          <View style={styles.metaRow}>
-            <View style={styles.chip}>
-              <Text style={styles.chipText}>💼 {job.industry}</Text>
+        <View style={styles.metaWrapRow}>
+          {job.job_level && (
+            <View style={styles.glassChip}>
+              <BarChart size={14} color="#D1D5DB" />
+              <Text style={styles.chipText}>{job.job_level}</Text>
             </View>
-          </View>
-        )}
-        
-        {job.company_size && (
-          <View style={styles.metaRow}>
-            <View style={styles.chip}>
-              <Text style={styles.chipText}>🏢 {job.company_size}</Text>
+          )}
+          {job.job_type && (
+            <View style={styles.glassChip}>
+              <Monitor size={14} color="#D1D5DB" />
+              <Text style={styles.chipText}>{job.job_type}</Text>
             </View>
-          </View>
-        )}
+          )}
+          {job.industry && (
+            <View style={styles.glassChip}>
+              <Briefcase size={14} color="#D1D5DB" />
+              <Text style={styles.chipText}>{job.industry}</Text>
+            </View>
+          )}
+          {job.company_size && (
+            <View style={styles.glassChip}>
+              <Building2 size={14} color="#D1D5DB" />
+              <Text style={styles.chipText}>{job.company_size}</Text>
+            </View>
+          )}
+        </View>
       </View>
 
       <View style={{ flex: 1 }} />
@@ -95,7 +105,10 @@ export default function JobCard({ job, onTap }: Props) {
           <Image source={require('../assets/logo.png')} style={styles.brandLogo} />
           <Text style={styles.brandText}>AntiGravity</Text>
         </View>
-        <Text style={styles.tapHint}>Tap for details ⓘ</Text>
+        <View style={styles.hintContainer}>
+          <Text style={styles.tapHint}>Tap for details</Text>
+          <Info size={14} color={C.textSub} />
+        </View>
       </View>
     </TouchableOpacity>
   );
@@ -122,81 +135,91 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: S.md,
   },
-  iconText: {
-    color: C.accent,
-    fontSize: T.lg,
-  },
-  logoWrapper: {
+  headerSection: {
+    flexDirection: 'row',
     alignItems: 'center',
+    gap: S.md,
     marginBottom: S.lg,
   },
   logoContainer: {
-    width: 72,
-    height: 72,
-    borderRadius: 18,
-    backgroundColor: '#2563EB', // A nice blue similar to Sprout's map logo
+    width: 64,
+    height: 64,
+    borderRadius: R.xl,
+    overflow: 'hidden',
     alignItems: 'center',
     justifyContent: 'center',
   },
   logoText: {
-    fontSize: 32,
+    fontSize: 28,
     fontWeight: '800',
     color: C.white,
+    position: 'absolute',
+  },
+  titleWrapper: {
+    flex: 1,
+    justifyContent: 'center',
   },
   company: {
-    fontSize: 13,
+    fontSize: 14,
     fontWeight: '700',
-    color: '#9CA3AF',
-    textAlign: 'center',
-    marginBottom: S.sm,
+    color: C.accent,
+    marginBottom: 4,
     letterSpacing: 1,
     textTransform: 'uppercase',
   },
-  excerpt: {
-    fontSize: 15,
-    color: '#D1D5DB',
-    textAlign: 'center',
-    lineHeight: 22,
-    paddingHorizontal: S.md,
-    marginBottom: S.xl,
-  },
   title: {
-    fontSize: 32,
+    fontSize: 26,
     fontWeight: '900',
     color: C.white,
-    textAlign: 'center',
+    lineHeight: 32,
+  },
+  excerpt: {
+    fontSize: 16,
+    color: '#D1D5DB',
+    lineHeight: 24,
     marginBottom: S.xl,
-    lineHeight: 38,
   },
   metaContainer: {
-    alignItems: 'center',
     gap: S.sm,
     marginBottom: S.xl,
   },
   metaRow: {
     flexDirection: 'row',
-    justifyContent: 'center',
+    flexWrap: 'wrap',
+    gap: S.sm,
+    marginBottom: S.xs,
+  },
+  metaWrapRow: {
+    flexDirection: 'row',
     flexWrap: 'wrap',
     gap: S.sm,
   },
   chipTransparent: {
-    paddingHorizontal: S.sm,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
     paddingVertical: S.xs,
+    marginRight: S.sm,
   },
   chipTextTransparent: {
     fontSize: T.xs,
     color: C.textSub,
     fontWeight: T.medium,
   },
-  chip: {
+  glassChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
     paddingHorizontal: S.md,
-    paddingVertical: 6,
+    paddingVertical: 8,
     borderRadius: R.pill,
-    backgroundColor: 'rgba(255,255,255,0.08)',
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.04)',
   },
   chipText: {
     fontSize: T.xs,
-    color: '#D1D5DB', // Light gray
+    color: '#D1D5DB',
     fontWeight: T.medium,
   },
   footer: {
@@ -222,6 +245,11 @@ const styles = StyleSheet.create({
     color: C.white,
     fontWeight: T.bold,
     letterSpacing: 0.5,
+  },
+  hintContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
   },
   tapHint: {
     fontSize: T.xs,
