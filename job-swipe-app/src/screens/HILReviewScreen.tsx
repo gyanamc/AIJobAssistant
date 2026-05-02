@@ -95,10 +95,12 @@ export default function HILReviewScreen({ route, navigation }: any) {
       return;
     }
 
-    // Save draft first (non-blocking)
+    // Save draft first and get the ID
+    let savedDraftId: string | undefined;
     try {
+      const newDraftId = generateId();
       const draft: DraftApplication = {
-        id: generateId(),
+        id: newDraftId,
         job_id: job.id,
         job_title: job.title,
         company: job.company,
@@ -109,6 +111,7 @@ export default function HILReviewScreen({ route, navigation }: any) {
         updated_at: new Date().toISOString(),
       };
       await saveDraft(draft);
+      savedDraftId = newDraftId;
     } catch { /* non-blocking */ }
 
     // Classify the apply URL to choose the right strategy
@@ -123,6 +126,8 @@ export default function HILReviewScreen({ route, navigation }: any) {
           coverLetter,
           jobTitle: job.title,
           company: job.company,
+          draftId: savedDraftId,
+          jobId: job.id,
         });
       } else {
         // Option 2 fallback: Copy cover letter + open in browser

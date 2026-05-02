@@ -34,7 +34,7 @@ export interface DraftApplication {
   company: string;
   apply_url: string;
   cover_letter: string;
-  status: 'draft' | 'auto-applied';
+  status: 'draft' | 'auto-applied' | 'applied';
   created_at: string;
   updated_at: string;
 }

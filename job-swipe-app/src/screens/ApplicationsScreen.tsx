@@ -42,11 +42,18 @@ export default function ApplicationsScreen() {
   }
 
   const isAutoApplied = (status: string) => status === 'auto-applied';
+  const isApplied = (status: string) => status === 'applied' || status === 'auto-applied';
+
+  const getStatusBadge = (status: string) => {
+    if (status === 'auto-applied') return { label: '⚡ Auto-Applied', style: styles.badgePurple, textStyle: styles.statusPurpleText };
+    if (status === 'applied')      return { label: '✅ Applied',      style: styles.badgeGreen,  textStyle: styles.statusGreenText };
+    return                                { label: 'Draft',           style: styles.badgeSurface, textStyle: styles.statusDefaultText };
+  };
 
   const renderItem = ({ item }: { item: DraftApplication }) => (
     <TouchableOpacity style={styles.card} onPress={() => openDraft(item)} activeOpacity={0.85}>
       {/* Left accent bar */}
-      <View style={[styles.accentBar, isAutoApplied(item.status) ? styles.accentPurple : styles.accentGreen]} />
+      <View style={[styles.accentBar, isApplied(item.status) ? styles.accentPurple : styles.accentGreen]} />
 
       <View style={styles.cardInner}>
         <View style={styles.cardTop}>
@@ -54,11 +61,14 @@ export default function ApplicationsScreen() {
             <Text style={styles.cardCompany} numberOfLines={1}>{item.company}</Text>
             <Text style={styles.cardTitle} numberOfLines={1}>{item.job_title}</Text>
           </View>
-          <View style={[styles.statusBadge, isAutoApplied(item.status) ? styles.badgePurple : styles.badgeSurface]}>
-            <Text style={[styles.statusText, isAutoApplied(item.status) ? styles.statusPurpleText : styles.statusDefaultText]}>
-              {isAutoApplied(item.status) ? '⚡ Applied' : 'Draft'}
-            </Text>
-          </View>
+          {(() => {
+            const badge = getStatusBadge(item.status);
+            return (
+              <View style={[styles.statusBadge, badge.style]}>
+                <Text style={[styles.statusText, badge.textStyle]}>{badge.label}</Text>
+              </View>
+            );
+          })()}
         </View>
 
         <View style={styles.cardFooter}>
@@ -264,6 +274,11 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(124,58,237,0.25)',
   },
+  badgeGreen: {
+    backgroundColor: 'rgba(0,200,150,0.15)',
+    borderWidth: 1,
+    borderColor: 'rgba(0,200,150,0.3)',
+  },
   statusText: {
     fontSize: T.xs,
     fontWeight: T.bold,
@@ -273,6 +288,9 @@ const styles = StyleSheet.create({
   },
   statusPurpleText: {
     color: '#A78BFA',
+  },
+  statusGreenText: {
+    color: C.accent,
   },
   cardFooter: {
     flexDirection: 'row',

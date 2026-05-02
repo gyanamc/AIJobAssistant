@@ -1,11 +1,13 @@
 import React, { useRef, useState, useEffect } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity,
-  ActivityIndicator, SafeAreaView, Clipboard,
+  ActivityIndicator, SafeAreaView,
 } from 'react-native';
 import { WebView } from 'react-native-webview';
 import type { WebViewNavigation } from 'react-native-webview';
 import { getItem, KEYS } from '../utils/storage';
+import { useApplicationStore } from '../store/useApplicationStore';
+import { useJobStore } from '../store/useJobStore';
 import type { ResumeSummary, UserPreferences } from '../types';
 import { C, T, R, S, SHADOW } from '../theme';
 
@@ -136,19 +138,25 @@ interface Props {
       coverLetter: string;
       jobTitle: string;
       company: string;
+      draftId?: string;   // if set, we update this draft's status on "Mark as Applied"
+      jobId?: string;     // for marking swipe record as applied
     };
   };
   navigation: any;
 }
 
 export default function ApplyWebViewScreen({ route, navigation }: Props) {
-  const { applyUrl, platform, coverLetter, jobTitle, company } = route.params;
+  const { applyUrl, platform, coverLetter, jobTitle, company, draftId, jobId } = route.params;
 
   const webViewRef = useRef<any>(null);
   const [pageLoaded, setPageLoaded] = useState(false);
   const [fillResult, setFillResult] = useState<{ success: boolean; fieldsFilled: number } | null>(null);
   const [injectionScript, setInjectionScript] = useState<string>('');
   const [showBanner, setShowBanner] = useState(false);
+  const [markedApplied, setMarkedApplied] = useState(false);
+
+  const { updateDraft } = useApplicationStore();
+  const { markAutoApplied } = useJobStore();
 
   useEffect(() => {
     buildScript();
@@ -198,6 +206,22 @@ export default function ApplyWebViewScreen({ route, navigation }: Props) {
     ) {
       // Show a hint but don't close — user can log in inside the WebView
     }
+  }
+
+  async function handleMarkApplied() {
+    // Update draft status to 'applied'
+    if (draftId) {
+      await updateDraft(draftId, { status: 'applied' });
+    }
+    // Mark swipe record
+    if (jobId) {
+      markAutoApplied(jobId);
+    }
+    setMarkedApplied(true);
+    // Navigate back to Applications tab after a short delay
+    setTimeout(() => {
+      navigation.navigate('Main', { screen: 'Applications' });
+    }, 600);
   }
 
   const platformLabel = platform === 'linkedin' ? 'LinkedIn' : 'Naukri';
@@ -261,11 +285,20 @@ export default function ApplyWebViewScreen({ route, navigation }: Props) {
         </View>
       )}
 
-      {/* Bottom hint */}
+      {/* Bottom action bar */}
       <View style={styles.footer}>
-        <Text style={styles.footerText}>
-          Fields pre-filled from your profile · Review carefully before submitting
+        <Text style={styles.footerHint}>
+          Fields pre-filled · Review carefully before submitting
         </Text>
+        <TouchableOpacity
+          style={[styles.markAppliedBtn, markedApplied && styles.markAppliedBtnDone]}
+          onPress={handleMarkApplied}
+          disabled={markedApplied}
+        >
+          <Text style={styles.markAppliedBtnText}>
+            {markedApplied ? '✅ Marked as Applied' : '✓ I Submitted — Mark as Applied'}
+          </Text>
+        </TouchableOpacity>
       </View>
     </SafeAreaView>
   );
@@ -360,10 +393,28 @@ const styles = StyleSheet.create({
     paddingVertical: S.sm,
     borderTopWidth: 1,
     borderTopColor: C.borderSub,
+    gap: S.sm,
   },
-  footerText: {
+  footerHint: {
     fontSize: T.xs,
     color: C.textDim,
     textAlign: 'center',
+  },
+  markAppliedBtn: {
+    paddingVertical: 13,
+    borderRadius: R.pill,
+    backgroundColor: C.accent,
+    alignItems: 'center',
+    ...SHADOW.subtle,
+  },
+  markAppliedBtnDone: {
+    backgroundColor: C.surface2,
+    borderWidth: 1,
+    borderColor: C.border,
+  },
+  markAppliedBtnText: {
+    fontSize: T.base,
+    fontWeight: T.bold,
+    color: C.black,
   },
 });

@@ -29,6 +29,8 @@ export type RootStackParamList = {
     coverLetter: string;
     jobTitle: string;
     company: string;
+    draftId?: string;
+    jobId?: string;
   };
 };
 
