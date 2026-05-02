@@ -19,6 +19,7 @@ const CHROME_ANDROID_UA =
 // ── JS Injection Script ───────────────────────────────────────────────────────
 // Injected after page load. Fills form fields using the user's profile data.
 // Uses React native setter approach for LinkedIn (React-controlled inputs).
+// Retries up to 3 times with 2s intervals to handle slow SPA rendering.
 function buildInjectionScript(
   platform: 'linkedin' | 'naukri',
   profile: {
@@ -35,94 +36,212 @@ function buildInjectionScript(
   const profile = ${profileJson};
   const platform = '${platform}';
   let filled = 0;
+  let attempts = 0;
+  const MAX_ATTEMPTS = 3;
+  const RETRY_INTERVAL = 2000;
 
+  // ── React-controlled input filler (LinkedIn) ──────────────────────────────
   function fillReactInput(el, val) {
-    if (!el || !val || el.value) return;
+    if (!el || !val || el.value === val) return false;
     try {
       const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
       setter.call(el, val);
       el.dispatchEvent(new Event('input', { bubbles: true }));
       el.dispatchEvent(new Event('change', { bubbles: true }));
-      filled++;
-    } catch(e) {}
+      el.dispatchEvent(new Event('blur', { bubbles: true }));
+      return true;
+    } catch(e) { return false; }
   }
 
   function fillReactTextarea(el, val) {
-    if (!el || !val || el.value) return;
+    if (!el || !val || el.value === val) return false;
     try {
       const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set;
       setter.call(el, val);
       el.dispatchEvent(new Event('input', { bubbles: true }));
       el.dispatchEvent(new Event('change', { bubbles: true }));
-      filled++;
-    } catch(e) {}
+      el.dispatchEvent(new Event('blur', { bubbles: true }));
+      return true;
+    } catch(e) { return false; }
   }
 
+  // ── Standard DOM input filler (Naukri) ────────────────────────────────────
   function fillInput(el, val) {
-    if (!el || !val || el.value) return;
+    if (!el || !val || el.value === val) return false;
     try {
+      el.focus();
       el.value = val;
       el.dispatchEvent(new Event('input', { bubbles: true }));
       el.dispatchEvent(new Event('change', { bubbles: true }));
       el.dispatchEvent(new Event('blur', { bubbles: true }));
-      filled++;
-    } catch(e) {}
+      return true;
+    } catch(e) { return false; }
   }
 
+  // ── Try a list of selectors, fill the first match ─────────────────────────
   function tryFill(selectors, value, isTextarea, useReact) {
+    if (!value) return false;
     for (const sel of selectors) {
-      const el = document.querySelector(sel);
-      if (el) {
-        if (isTextarea) fillReactTextarea(el, value);
-        else if (useReact) fillReactInput(el, value);
-        else fillInput(el, value);
-        return true;
-      }
+      try {
+        const el = document.querySelector(sel);
+        if (el) {
+          let ok = false;
+          if (isTextarea) ok = fillReactTextarea(el, value);
+          else if (useReact) ok = fillReactInput(el, value);
+          else ok = fillInput(el, value);
+          if (ok) { filled++; return true; }
+        }
+      } catch(e) {}
     }
     return false;
   }
 
-  function runFill() {
-    if (platform === 'linkedin') {
-      tryFill(
-        ['input[name="phoneNumber"]', 'input[id*="phoneNumber"]', 'input[aria-label*="Phone"]', 'input[aria-label*="phone"]'],
-        profile.phone, false, true
-      );
-      tryFill(
-        ['input[name="city"]', 'input[aria-label*="City"]', 'input[aria-label*="city"]'],
-        profile.location, false, true
-      );
-      tryFill(
-        ['textarea[aria-label*="cover letter"]', 'textarea[aria-label*="Cover letter"]', 'textarea[name="coverLetter"]', '.jobs-easy-apply-form-section__cover-letter textarea'],
-        profile.coverLetter, true, true
-      );
-    } else if (platform === 'naukri') {
-      tryFill(
-        ['input[name="name"]', '#applicantName', 'input[placeholder*="Name"]', 'input[placeholder*="name"]'],
-        profile.name, false, false
-      );
-      tryFill(
-        ['input[name="email"]', 'input[type="email"]', '#applicantEmail', 'input[placeholder*="Email"]'],
-        profile.email, false, false
-      );
-      tryFill(
-        ['input[name="mobile"]', 'input[name="phone"]', 'input[type="tel"]', '#applicantMobile', 'input[placeholder*="Mobile"]', 'input[placeholder*="Phone"]'],
-        profile.phone, false, false
-      );
-      tryFill(
-        ['textarea[name="coverLetter"]', '#coverLetter', 'textarea[placeholder*="cover"]', 'textarea[placeholder*="message"]'],
-        profile.coverLetter, true, false
-      );
-    }
+  // ── LinkedIn selectors ────────────────────────────────────────────────────
+  function fillLinkedIn() {
+    // Phone number
+    tryFill([
+      'input[name="phoneNumber"]',
+      'input[id*="phoneNumber"]',
+      'input[aria-label="Phone number"]',
+      'input[aria-label*="Phone"]',
+      'input[aria-label*="phone"]',
+      '.jobs-easy-apply-form-section__phone input',
+      'input[data-test-text-entity-list-form-input]',
+    ], profile.phone, false, true);
 
-    window.ReactNativeWebView.postMessage(JSON.stringify({
-      type: 'FILL_RESULT',
-      success: filled > 0,
-      fieldsFilled: filled,
-    }));
+    // City / Location
+    tryFill([
+      'input[name="city"]',
+      'input[aria-label="City"]',
+      'input[aria-label*="City"]',
+      'input[aria-label*="city"]',
+      'input[aria-label*="location"]',
+      'input[aria-label*="Location"]',
+    ], profile.location, false, true);
+
+    // Cover letter textarea
+    tryFill([
+      'textarea[aria-label="Cover letter"]',
+      'textarea[aria-label*="cover letter"]',
+      'textarea[aria-label*="Cover letter"]',
+      'textarea[name="coverLetter"]',
+      '.jobs-easy-apply-form-section__cover-letter textarea',
+      'textarea[id*="cover"]',
+      'textarea[placeholder*="cover"]',
+    ], profile.coverLetter, true, true);
+
+    // Additional text fields — fill with relevant profile info if empty
+    // (LinkedIn sometimes asks "Years of experience", "LinkedIn profile URL", etc.)
+    const additionalInputs = document.querySelectorAll(
+      '.jobs-easy-apply-form-element input[type="text"]:not([value])'
+    );
+    additionalInputs.forEach(input => {
+      const label = (input.getAttribute('aria-label') || '').toLowerCase();
+      if (label.includes('linkedin') || label.includes('profile') || label.includes('url')) {
+        // Skip URL fields
+      } else if (label.includes('year') || label.includes('experience')) {
+        // Skip numeric fields
+      }
+    });
   }
 
-  // Wait 2s for SPA to render the form
+  // ── Naukri selectors ──────────────────────────────────────────────────────
+  function fillNaukri() {
+    // Full name
+    tryFill([
+      'input[name="name"]',
+      'input[name="fullName"]',
+      '#applicantName',
+      '#fullName',
+      'input[placeholder="Name"]',
+      'input[placeholder="Full Name"]',
+      'input[placeholder*="name"]',
+      'input[placeholder*="Name"]',
+      'input[id*="name"]',
+      'input[id*="Name"]',
+    ], profile.name, false, false);
+
+    // Email
+    tryFill([
+      'input[name="email"]',
+      'input[type="email"]',
+      '#applicantEmail',
+      '#email',
+      'input[placeholder*="Email"]',
+      'input[placeholder*="email"]',
+      'input[id*="email"]',
+    ], profile.email, false, false);
+
+    // Mobile / Phone
+    tryFill([
+      'input[name="mobile"]',
+      'input[name="phone"]',
+      'input[name="mobileNumber"]',
+      'input[type="tel"]',
+      '#applicantMobile',
+      '#mobile',
+      '#phone',
+      'input[placeholder*="Mobile"]',
+      'input[placeholder*="mobile"]',
+      'input[placeholder*="Phone"]',
+      'input[placeholder*="phone"]',
+      'input[id*="mobile"]',
+      'input[id*="phone"]',
+    ], profile.phone, false, false);
+
+    // Cover letter / Message
+    tryFill([
+      'textarea[name="coverLetter"]',
+      'textarea[name="message"]',
+      '#coverLetter',
+      '#message',
+      'textarea[placeholder*="cover letter"]',
+      'textarea[placeholder*="Cover Letter"]',
+      'textarea[placeholder*="message"]',
+      'textarea[placeholder*="Message"]',
+      'textarea[id*="cover"]',
+      'textarea[id*="message"]',
+    ], profile.coverLetter, true, false);
+  }
+
+  // ── Main fill function with retry ─────────────────────────────────────────
+  function runFill() {
+    attempts++;
+    const prevFilled = filled;
+
+    if (platform === 'linkedin') fillLinkedIn();
+    else if (platform === 'naukri') fillNaukri();
+
+    const newFills = filled - prevFilled;
+
+    if (filled > 0 || attempts >= MAX_ATTEMPTS) {
+      // Report result back to React Native
+      window.ReactNativeWebView.postMessage(JSON.stringify({
+        type: 'FILL_RESULT',
+        success: filled > 0,
+        fieldsFilled: filled,
+        attempts: attempts,
+      }));
+    } else {
+      // Retry — form may not have rendered yet
+      setTimeout(runFill, RETRY_INTERVAL);
+    }
+  }
+
+  // ── Timeout fallback — report failure after 10s regardless ───────────────
+  const timeoutId = setTimeout(() => {
+    if (filled === 0) {
+      window.ReactNativeWebView.postMessage(JSON.stringify({
+        type: 'FILL_RESULT',
+        success: false,
+        fieldsFilled: 0,
+        attempts: attempts,
+        timedOut: true,
+      }));
+    }
+  }, 10000);
+
+  // Start first attempt after 2s (SPA rendering delay)
   setTimeout(runFill, 2000);
 })();
 true; // required by React Native WebView
@@ -185,8 +304,9 @@ export default function ApplyWebViewScreen({ route, navigation }: Props) {
       if (data.type === 'FILL_RESULT') {
         setFillResult({ success: data.success, fieldsFilled: data.fieldsFilled });
         setShowBanner(true);
-        // Auto-hide banner after 4 seconds
-        setTimeout(() => setShowBanner(false), 4000);
+        // Keep failure banner visible longer so user sees it
+        const hideDelay = data.success ? 5000 : 8000;
+        setTimeout(() => setShowBanner(false), hideDelay);
       }
     } catch { /* ignore non-JSON messages */ }
   }
