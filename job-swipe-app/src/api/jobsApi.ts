@@ -59,3 +59,20 @@ export async function generateCoverLetter(req: CoverLetterRequest): Promise<stri
   });
   return data.cover_letter;
 }
+
+export type FormType = 'linkedin_easy_apply' | 'naukri_apply' | 'external_ats' | 'unknown';
+export type ApplyStrategy = 'webview_autofill' | 'clipboard_browser';
+
+export interface ClassifyApplyUrlResponse {
+  form_type: FormType;
+  strategy: ApplyStrategy;
+  platform: 'linkedin' | 'naukri' | null;
+  ats_name: string | null;
+}
+
+export async function classifyApplyUrl(url: string): Promise<ClassifyApplyUrlResponse> {
+  const params = new URLSearchParams({ url });
+  return apiFetch<ClassifyApplyUrlResponse>(
+    `${API_BASE}/api/v1/jobs/classify-apply-url?${params}`
+  );
+}

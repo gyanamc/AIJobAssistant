@@ -450,6 +450,109 @@ async def jobs_feed(
 
     return {"jobs": jobs, "total": len(jobs)}
 
+# ── Apply URL Classifier ──────────────────────────────────────────────────────
+EXTERNAL_ATS_DOMAINS = [
+    "myworkdayjobs.com", "wd1.myworkdayjobs.com", "wd3.myworkdayjobs.com",
+    "greenhouse.io", "boards.greenhouse.io",
+    "lever.co", "jobs.lever.co",
+    "workable.com", "apply.workable.com",
+    "smartrecruiters.com", "jobs.smartrecruiters.com",
+    "icims.com", "careers.icims.com",
+    "taleo.net", "tbe.taleo.net",
+    "successfactors.com", "performancemanager.successfactors.com",
+    "bamboohr.com", "app.bamboohr.com",
+    "ashbyhq.com", "jobs.ashbyhq.com",
+    "jobvite.com", "jobs.jobvite.com",
+    "breezy.hr", "apply.breezy.hr",
+    "recruitee.com",
+    "pinpointhq.com",
+    "dover.com",
+    "rippling.com",
+    "gusto.com",
+    "paylocity.com",
+    "adp.com",
+    "ultipro.com",
+    "kronos.com",
+    "oracle.com/taleo",
+    "sap.com",
+    "kenexa.com",
+    "hirevue.com",
+    "indeed.com/apply",
+    "glassdoor.com/job-listing",
+]
+
+@app.get("/api/v1/jobs/classify-apply-url")
+async def classify_apply_url(url: str = ""):
+    """
+    Classify an apply URL to determine the best apply strategy.
+
+    Returns:
+    - form_type: 'linkedin_easy_apply' | 'naukri_apply' | 'external_ats' | 'unknown'
+    - strategy: 'webview_autofill' | 'clipboard_browser'
+    - platform: 'linkedin' | 'naukri' | None
+    - ats_name: name of the ATS if external (e.g. 'Workday'), else None
+    """
+    if not url:
+        return {
+            "form_type": "unknown",
+            "strategy": "clipboard_browser",
+            "platform": None,
+            "ats_name": None,
+        }
+
+    url_lower = url.lower()
+
+    # LinkedIn
+    if "linkedin.com" in url_lower:
+        return {
+            "form_type": "linkedin_easy_apply",
+            "strategy": "webview_autofill",
+            "platform": "linkedin",
+            "ats_name": None,
+        }
+
+    # Naukri
+    if "naukri.com" in url_lower:
+        return {
+            "form_type": "naukri_apply",
+            "strategy": "webview_autofill",
+            "platform": "naukri",
+            "ats_name": None,
+        }
+
+    # Check external ATS platforms
+    for ats_domain in EXTERNAL_ATS_DOMAINS:
+        if ats_domain in url_lower:
+            # Extract a friendly name from the domain
+            ats_name = ats_domain.split(".")[0].capitalize()
+            # Special cases for better names
+            name_map = {
+                "myworkdayjobs": "Workday",
+                "wd1": "Workday",
+                "wd3": "Workday",
+                "boards": "Greenhouse",
+                "jobs": "Lever" if "lever.co" in url_lower else "SmartRecruiters",
+                "apply": "Workable" if "workable.com" in url_lower else "Breezy",
+                "tbe": "Taleo",
+                "performancemanager": "SAP SuccessFactors",
+                "app": "BambooHR",
+            }
+            friendly = name_map.get(ats_name.lower(), ats_name)
+            return {
+                "form_type": "external_ats",
+                "strategy": "clipboard_browser",
+                "platform": None,
+                "ats_name": friendly,
+            }
+
+    # Unknown — use clipboard fallback
+    return {
+        "form_type": "unknown",
+        "strategy": "clipboard_browser",
+        "platform": None,
+        "ats_name": None,
+    }
+
 # ── Ollama Proxy ──────────────────────────────────────────────────────────────
 class OllamaMessage(BaseModel):
     role: str
