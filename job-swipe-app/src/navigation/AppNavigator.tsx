@@ -15,6 +15,7 @@ import ProfileScreen from '../screens/ProfileScreen';
 import JobDetailSheet from '../screens/JobDetailSheet';
 import HILReviewScreen from '../screens/HILReviewScreen';
 import AuthGateModal from '../screens/AuthGateModal';
+import ApplyWebViewScreen from '../screens/ApplyWebViewScreen';
 
 export type RootStackParamList = {
   Onboarding: undefined;
@@ -22,6 +23,13 @@ export type RootStackParamList = {
   JobDetail: { job: any };
   HILReview: { job: any; autoApply: boolean };
   AuthGate: { pendingJob?: any; returnTo?: 'Applications' | 'Profile' };
+  ApplyWebView: {
+    applyUrl: string;
+    platform: 'linkedin' | 'naukri';
+    coverLetter: string;
+    jobTitle: string;
+    company: string;
+  };
 };
 
 export type TabParamList = {
@@ -110,9 +118,10 @@ export default function AppNavigator() {
       >
         <Stack.Screen name="Onboarding" component={OnboardingScreen} />
         <Stack.Screen name="Main"       component={MainTabs} />
-        <Stack.Screen name="JobDetail"  component={JobDetailSheet} options={{ presentation: 'modal' }} />
-        <Stack.Screen name="HILReview"  component={HILReviewScreen} options={{ presentation: 'modal' }} />
-        <Stack.Screen name="AuthGate"   component={AuthGateModal}   options={{ presentation: 'modal' }} />
+        <Stack.Screen name="JobDetail"  component={JobDetailSheet}      options={{ presentation: 'modal' }} />
+        <Stack.Screen name="HILReview"  component={HILReviewScreen}     options={{ presentation: 'modal' }} />
+        <Stack.Screen name="AuthGate"   component={AuthGateModal}       options={{ presentation: 'modal' }} />
+        <Stack.Screen name="ApplyWebView" component={ApplyWebViewScreen} options={{ presentation: 'fullScreenModal' }} />
       </Stack.Navigator>
     </NavigationContainer>
   );

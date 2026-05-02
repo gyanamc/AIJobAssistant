@@ -3,7 +3,7 @@ import {
   View, Text, StyleSheet, TextInput,
   TouchableOpacity, ScrollView, Linking, Clipboard,
 } from 'react-native';
-import { generateCoverLetter } from '../api/jobsApi';
+import { generateCoverLetter, classifyApplyUrl } from '../api/jobsApi';
 import { useApplicationStore } from '../store/useApplicationStore';
 import { useJobStore } from '../store/useJobStore';
 import { getItem, KEYS } from '../utils/storage';
@@ -90,11 +90,12 @@ export default function HILReviewScreen({ route, navigation }: any) {
   }
 
   async function handleApplyNow() {
-    // Copy cover letter to clipboard so user can paste it in the application form
-    if (coverLetter) {
-      Clipboard.setString(coverLetter);
+    if (!job.apply_url) {
+      showToast('No apply link available for this job', 'error');
+      return;
     }
-    // Save as draft first
+
+    // Save draft first (non-blocking)
     try {
       const draft: DraftApplication = {
         id: generateId(),
@@ -109,12 +110,32 @@ export default function HILReviewScreen({ route, navigation }: any) {
       };
       await saveDraft(draft);
     } catch { /* non-blocking */ }
-    // Open the job URL in browser
-    if (job.apply_url) {
+
+    // Classify the apply URL to choose the right strategy
+    try {
+      const classification = await classifyApplyUrl(job.apply_url);
+
+      if (classification.strategy === 'webview_autofill' && classification.platform) {
+        // Option 1: Open in-app WebView with auto-fill
+        navigation.navigate('ApplyWebView', {
+          applyUrl: job.apply_url,
+          platform: classification.platform,
+          coverLetter,
+          jobTitle: job.title,
+          company: job.company,
+        });
+      } else {
+        // Option 2 fallback: Copy cover letter + open in browser
+        if (coverLetter) Clipboard.setString(coverLetter);
+        const atsName = classification.ats_name ? ` (${classification.ats_name})` : '';
+        showToast(`Cover letter copied! Opening${atsName} 📋`);
+        setTimeout(() => Linking.openURL(job.apply_url), 800);
+      }
+    } catch {
+      // Network error — fall back to Option 2
+      if (coverLetter) Clipboard.setString(coverLetter);
       showToast('Cover letter copied! Paste it in the form 📋');
       setTimeout(() => Linking.openURL(job.apply_url), 800);
-    } else {
-      showToast('No apply link available for this job', 'error');
     }
   }
 
@@ -350,11 +371,13 @@ const styles = StyleSheet.create({
     fontSize: T.base,
     fontWeight: T.bold,
   },
+  primaryBtn: {
     paddingVertical: 14,
     borderRadius: R.pill,
-    backgroundColor: C.accent,
+    backgroundColor: C.surface2,
+    borderWidth: 1,
+    borderColor: C.border,
     alignItems: 'center',
-    ...SHADOW.subtle,
   },
   primaryBtnText: {
     color: C.black,
