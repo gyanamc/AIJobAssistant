@@ -671,17 +671,24 @@ async def recruiter_search(req: SearchRequest, recruiter_id: Optional[str] = Dep
     if req.session_searched and not recruiter_id:
         raise HTTPException(401, "Sign in to continue searching.")
 
-    jd_embedding = await embed(req.jd)
+    try:
+        jd_embedding = await embed(req.jd)
+    except Exception as e:
+        raise HTTPException(503, f"Embedding service error: {str(e)}")
+
     emb_str = "[" + ",".join(str(x) for x in jd_embedding) + "]"
 
-    with engine.connect() as conn:
-        rows = conn.execute(text("""
-            SELECT id, candidate_hash, role_title, skills, location, summary,
-                   1 - (embedding <=> CAST(:emb AS vector)) AS score
-            FROM candidate_profiles
-            ORDER BY embedding <=> CAST(:emb AS vector)
-            LIMIT 20
-        """), {"emb": emb_str}).fetchall()
+    try:
+        with engine.connect() as conn:
+            rows = conn.execute(text("""
+                SELECT id, candidate_hash, role_title, skills, location, summary,
+                       1 - (embedding <=> CAST(:emb AS vector)) AS score
+                FROM candidate_profiles
+                ORDER BY embedding <=> CAST(:emb AS vector)
+                LIMIT 20
+            """), {"emb": emb_str}).fetchall()
+    except Exception as e:
+        raise HTTPException(500, f"Database search error: {str(e)[:300]}")
 
     results = []
     for rank, row in enumerate(rows, 1):
