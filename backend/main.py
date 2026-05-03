@@ -614,7 +614,7 @@ async def sync_profile(req: ProfileSyncRequest):
             INSERT INTO candidate_profiles
                 (candidate_hash, role_title, skills, location, summary, name_enc, email_enc, phone_enc, embedding)
             VALUES
-                (:hash, :role, :skills, :location, :summary, :name, :email, :phone, :emb::vector)
+                (:hash, :role, :skills, :location, :summary, :name, :email, :phone, CAST(:emb AS vector))
             ON CONFLICT (candidate_hash) DO UPDATE SET
                 role_title = EXCLUDED.role_title,
                 skills     = EXCLUDED.skills,
@@ -657,9 +657,9 @@ async def recruiter_search(req: SearchRequest, recruiter_id: Optional[str] = Dep
     with engine.connect() as conn:
         rows = conn.execute(text("""
             SELECT id, candidate_hash, role_title, skills, location, summary,
-                   1 - (embedding <=> :emb::vector) AS score
+                   1 - (embedding <=> CAST(:emb AS vector)) AS score
             FROM candidate_profiles
-            ORDER BY embedding <=> :emb::vector
+            ORDER BY embedding <=> CAST(:emb AS vector)
             LIMIT 20
         """), {"emb": emb_str}).fetchall()
 
