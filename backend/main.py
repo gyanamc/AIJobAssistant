@@ -605,16 +605,74 @@ async def ollama_chat(request: OllamaChatRequest):
         "options": request.options or {"temperature": 0.3},
         "stream": False
     }
+    # Try Ollama first
     try:
-        async with httpx.AsyncClient(timeout=60.0) as client:
+        async with httpx.AsyncClient(timeout=15.0) as client:
             res = await client.post(f"{OLLAMA_HOST}/api/chat", json=payload)
+        if res.status_code == 200:
+            return {"content": res.json().get("message", {}).get("content", "")}
+    except Exception:
+        pass
+
+    # Ollama unavailable — fall back to Groq
+    groq_key = os.getenv("GROQ_API_KEY")
+    if groq_key:
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                res = await client.post(
+                    "https://api.groq.com/openai/v1/chat/completions",
+                    headers={"Authorization": f"Bearer {groq_key}", "Content-Type": "application/json"},
+                    json={
+                        "model": "llama-3.1-8b-instant",
+                        "messages": [{"role": m.role, "content": m.content} for m in request.messages],
+                        "temperature": (request.options or {}).get("temperature", 0.3),
+                        "max_tokens": 600,
+                        "response_format": {"type": "json_object"},
+                    }
+                )
+            if res.status_code == 200:
+                content = res.json()["choices"][0]["message"]["content"]
+                return {"content": content}
+        except Exception as e:
+            raise HTTPException(503, f"Both Ollama and Groq unavailable: {str(e)}")
+
+    raise HTTPException(503, "Ollama service unavailable and no Groq key configured.")
+
+# ── Groq Proxy ────────────────────────────────────────────────────────────────
+@app.post("/api/v1/groq/chat")
+async def groq_chat(request: OllamaChatRequest):
+    """
+    Groq proxy for the Chrome extension's free tier evaluation.
+    Accepts the same message format as the Ollama proxy for compatibility.
+    """
+    groq_key = os.getenv("GROQ_API_KEY")
+    if not groq_key:
+        raise HTTPException(503, "Groq API key not configured on server.")
+
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            res = await client.post(
+                "https://api.groq.com/openai/v1/chat/completions",
+                headers={"Authorization": f"Bearer {groq_key}", "Content-Type": "application/json"},
+                json={
+                    "model": "llama-3.1-8b-instant",
+                    "messages": [{"role": m.role, "content": m.content} for m in request.messages],
+                    "temperature": (request.options or {}).get("temperature", 0.3),
+                    "max_tokens": 600,
+                    "response_format": {"type": "json_object"},
+                }
+            )
         if res.status_code != 200:
-            raise HTTPException(503, f"Ollama returned {res.status_code}")
-        return {"content": res.json().get("message", {}).get("content", "")}
-    except httpx.ConnectError:
-        raise HTTPException(503, "Ollama service unavailable.")
+            raise HTTPException(502, f"Groq returned {res.status_code}: {res.text[:200]}")
+        # Return in the same format as Ollama proxy so extension code works unchanged
+        content = res.json()["choices"][0]["message"]["content"]
+        return {"choices": [{"message": {"content": content}}]}
     except httpx.TimeoutException:
-        raise HTTPException(504, "Ollama request timed out.")
+        raise HTTPException(504, "Groq request timed out.")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(503, f"Groq proxy error: {str(e)}")
 
 # ── Profile Sync ──────────────────────────────────────────────────────────────
 class ProfileSyncRequest(BaseModel):
