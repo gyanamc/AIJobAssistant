@@ -893,7 +893,7 @@ async def seed_test_candidates():
                     INSERT INTO candidate_profiles
                         (candidate_hash, role_title, skills, location, summary, name_enc, email_enc, phone_enc, embedding)
                     VALUES
-                        (:hash, :role, :skills, :location, :summary, :name, :email, :phone, :emb::vector)
+                        (:hash, :role, :skills, :location, :summary, :name, :email, :phone, CAST(:emb AS vector))
                     ON CONFLICT (candidate_hash) DO UPDATE SET
                         role_title = EXCLUDED.role_title,
                         skills     = EXCLUDED.skills,
