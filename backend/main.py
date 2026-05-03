@@ -15,6 +15,19 @@ load_dotenv()
 
 app = FastAPI(title="AI Job Assistant API", version="3.0.1")
 
+from fastapi.responses import JSONResponse
+from fastapi.requests import Request
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    import traceback
+    tb = traceback.format_exc()
+    print(f"UNHANDLED EXCEPTION: {exc}\n{tb}")
+    return JSONResponse(
+        status_code=500,
+        content={"detail": str(exc), "type": type(exc).__name__}
+    )
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
