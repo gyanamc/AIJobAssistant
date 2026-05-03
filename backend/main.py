@@ -697,6 +697,7 @@ async def recruiter_search(req: SearchRequest, recruiter_id: Optional[str] = Dep
                 SELECT id, candidate_hash, role_title, skills, location, summary,
                        1 - (embedding <=> CAST(:emb AS vector)) AS score
                 FROM candidate_profiles
+                WHERE embedding IS NOT NULL
                 ORDER BY embedding <=> CAST(:emb AS vector)
                 LIMIT 20
             """), {"emb": emb_str}).fetchall()
@@ -705,7 +706,7 @@ async def recruiter_search(req: SearchRequest, recruiter_id: Optional[str] = Dep
 
     results = []
     for rank, row in enumerate(rows, 1):
-        score = round(float(row.score) * 100, 1)
+        score = round(float(row.score) * 100, 1) if row.score is not None else 0.0
         candidate_text = f"Role: {row.role_title}\nSkills: {row.skills}\nLocation: {row.location}\nSummary: {row.summary}"
         reasoning = await llm_reason(req.jd, candidate_text, rank)
         results.append({
