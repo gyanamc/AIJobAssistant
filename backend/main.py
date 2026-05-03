@@ -880,6 +880,7 @@ async def seed_test_candidates():
 
     seeded = 0
     failed = 0
+    errors = []
 
     for c in test_candidates:
         try:
@@ -917,7 +918,9 @@ async def seed_test_candidates():
                 conn.commit()
             seeded += 1
         except Exception as e:
-            print(f"Seed error for {c['hash']}: {e}")
+            err_msg = str(e)
+            print(f"Seed error for {c['hash']}: {err_msg}")
+            errors.append({"candidate": c["hash"], "error": err_msg[:200]})
             failed += 1
 
     # Verify count
@@ -929,6 +932,7 @@ async def seed_test_candidates():
         "failed": failed,
         "total_candidates_in_db": total,
         "message": f"Successfully seeded {seeded} test candidates. {total} total candidates in database.",
+        "errors": errors,
     }
 
 # ── Job Evaluation (server-side key) ─────────────────────────────────────────
