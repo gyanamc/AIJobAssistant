@@ -740,6 +740,197 @@ async def unmask_candidate(req: UnmaskRequest, recruiter_id: Optional[str] = Dep
 
     return {"name": candidate.name_enc, "email": candidate.email_enc, "phone": candidate.phone_enc}
 
+# ── Recruiter Events ──────────────────────────────────────────────────────────
+@app.get("/api/v1/recruiter/events")
+async def get_recruiter_events(recruiter_id: Optional[str] = Depends(get_recruiter_id)):
+    """Return events used and remaining for the authenticated recruiter."""
+    if not recruiter_id:
+        raise HTTPException(401, "Sign in to view your event balance.")
+
+    with engine.connect() as conn:
+        rec = conn.execute(text(
+            "SELECT events_used, unmasked_candidates FROM recruiter_events WHERE recruiter_id = :rid"
+        ), {"rid": recruiter_id}).fetchone()
+
+        if not rec:
+            # First time — create record
+            conn.execute(text(
+                "INSERT INTO recruiter_events (recruiter_id, events_used, unmasked_candidates) VALUES (:rid, 0, '[]')"
+            ), {"rid": recruiter_id})
+            conn.commit()
+            events_used = 0
+        else:
+            events_used = rec.events_used
+
+    return {
+        "events_used": events_used,
+        "events_remaining": max(0, MAX_FREE_EVENTS - events_used),
+        "free_tier_limit": MAX_FREE_EVENTS,
+    }
+
+# ── Seed Test Candidates ──────────────────────────────────────────────────────
+@app.post("/api/v1/admin/seed-candidates")
+async def seed_test_candidates():
+    """
+    Seed the database with realistic test candidate profiles for recruiter app testing.
+    Safe to call multiple times — uses ON CONFLICT DO NOTHING.
+    """
+    test_candidates = [
+        {
+            "hash": "test_candidate_001",
+            "role": "Senior Software Engineer",
+            "skills": "Python, FastAPI, PostgreSQL, Docker, AWS, React, TypeScript",
+            "location": "Bangalore, India",
+            "summary": "8 years of experience building scalable backend systems. Led a team of 5 engineers at a Series B startup. Strong in distributed systems and API design.",
+            "name": "Arjun Sharma",
+            "email": "arjun.sharma@email.com",
+            "phone": "+91 98765 43210",
+        },
+        {
+            "hash": "test_candidate_002",
+            "role": "Machine Learning Engineer",
+            "skills": "Python, TensorFlow, PyTorch, LangChain, RAG, NLP, Hugging Face, SQL",
+            "location": "Hyderabad, India",
+            "summary": "5 years in ML/AI with focus on NLP and LLM applications. Built production RAG pipelines serving 100K+ daily queries. Published 2 papers on transformer fine-tuning.",
+            "name": "Priya Nair",
+            "email": "priya.nair@email.com",
+            "phone": "+91 87654 32109",
+        },
+        {
+            "hash": "test_candidate_003",
+            "role": "Full Stack Developer",
+            "skills": "React, Node.js, TypeScript, MongoDB, GraphQL, AWS Lambda, Tailwind CSS",
+            "location": "Mumbai, India",
+            "summary": "6 years building full-stack web applications. Shipped 3 SaaS products from 0 to 1. Strong in React performance optimization and Node.js microservices.",
+            "name": "Rahul Mehta",
+            "email": "rahul.mehta@email.com",
+            "phone": "+91 76543 21098",
+        },
+        {
+            "hash": "test_candidate_004",
+            "role": "Data Scientist",
+            "skills": "Python, R, SQL, Pandas, Scikit-learn, Tableau, Power BI, Statistics, A/B Testing",
+            "location": "Pune, India",
+            "summary": "4 years in data science at e-commerce companies. Specialized in customer segmentation, churn prediction, and recommendation systems. Reduced churn by 23% at last role.",
+            "name": "Sneha Patel",
+            "email": "sneha.patel@email.com",
+            "phone": "+91 65432 10987",
+        },
+        {
+            "hash": "test_candidate_005",
+            "role": "DevOps Engineer",
+            "skills": "Kubernetes, Docker, Terraform, AWS, GCP, CI/CD, Jenkins, Prometheus, Grafana, Linux",
+            "location": "Chennai, India",
+            "summary": "7 years in DevOps and platform engineering. Migrated 3 monoliths to microservices on Kubernetes. Reduced deployment time from 2 hours to 8 minutes.",
+            "name": "Vikram Singh",
+            "email": "vikram.singh@email.com",
+            "phone": "+91 54321 09876",
+        },
+        {
+            "hash": "test_candidate_006",
+            "role": "Product Manager",
+            "skills": "Product Strategy, Roadmapping, SQL, Figma, Agile, Jira, User Research, A/B Testing, Growth",
+            "location": "Delhi, India",
+            "summary": "5 years as PM at B2B SaaS companies. Grew ARR from $2M to $12M. Strong in data-driven product decisions and cross-functional team leadership.",
+            "name": "Ananya Krishnan",
+            "email": "ananya.krishnan@email.com",
+            "phone": "+91 43210 98765",
+        },
+        {
+            "hash": "test_candidate_007",
+            "role": "Android Developer",
+            "skills": "Kotlin, Java, Android SDK, Jetpack Compose, MVVM, Retrofit, Room, Firebase, Coroutines",
+            "location": "Bangalore, India",
+            "summary": "4 years building Android apps with 1M+ downloads. Expert in Jetpack Compose and modern Android architecture. Contributed to 2 open-source Android libraries.",
+            "name": "Karthik Reddy",
+            "email": "karthik.reddy@email.com",
+            "phone": "+91 32109 87654",
+        },
+        {
+            "hash": "test_candidate_008",
+            "role": "Frontend Developer",
+            "skills": "React, Vue.js, JavaScript, TypeScript, CSS, Webpack, Performance Optimization, Accessibility",
+            "location": "Remote",
+            "summary": "5 years in frontend development. Obsessed with performance and accessibility. Reduced LCP by 60% at previous company. Strong in design systems and component libraries.",
+            "name": "Divya Menon",
+            "email": "divya.menon@email.com",
+            "phone": "+91 21098 76543",
+        },
+        {
+            "hash": "test_candidate_009",
+            "role": "Backend Engineer",
+            "skills": "Java, Spring Boot, Microservices, Kafka, Redis, PostgreSQL, gRPC, Docker, AWS",
+            "location": "Hyderabad, India",
+            "summary": "6 years in Java backend development at fintech companies. Built payment processing systems handling 50K TPS. Expert in event-driven architecture with Kafka.",
+            "name": "Suresh Kumar",
+            "email": "suresh.kumar@email.com",
+            "phone": "+91 10987 65432",
+        },
+        {
+            "hash": "test_candidate_010",
+            "role": "AI/ML Research Engineer",
+            "skills": "Python, PyTorch, Transformers, RLHF, Fine-tuning, LLM, Computer Vision, OpenCV, CUDA",
+            "location": "Bangalore, India",
+            "summary": "3 years in AI research with focus on LLM fine-tuning and RLHF. MSc in Computer Science from IIT Bombay. Interned at a top AI lab. Strong publication record.",
+            "name": "Meera Iyer",
+            "email": "meera.iyer@email.com",
+            "phone": "+91 09876 54321",
+        },
+    ]
+
+    seeded = 0
+    failed = 0
+
+    for c in test_candidates:
+        try:
+            profile_text = f"Role: {c['role']}\nSkills: {c['skills']}\nLocation: {c['location']}\nSummary: {c['summary']}"
+            embedding = await embed(profile_text)
+            emb_str = "[" + ",".join(str(x) for x in embedding) + "]"
+
+            with engine.connect() as conn:
+                conn.execute(text("""
+                    INSERT INTO candidate_profiles
+                        (candidate_hash, role_title, skills, location, summary, name_enc, email_enc, phone_enc, embedding)
+                    VALUES
+                        (:hash, :role, :skills, :location, :summary, :name, :email, :phone, :emb::vector)
+                    ON CONFLICT (candidate_hash) DO UPDATE SET
+                        role_title = EXCLUDED.role_title,
+                        skills     = EXCLUDED.skills,
+                        location   = EXCLUDED.location,
+                        summary    = EXCLUDED.summary,
+                        name_enc   = EXCLUDED.name_enc,
+                        email_enc  = EXCLUDED.email_enc,
+                        phone_enc  = EXCLUDED.phone_enc,
+                        embedding  = EXCLUDED.embedding,
+                        updated_at = NOW()
+                """), {
+                    "hash":     c["hash"],
+                    "role":     c["role"],
+                    "skills":   c["skills"],
+                    "location": c["location"],
+                    "summary":  c["summary"],
+                    "name":     c["name"],
+                    "email":    c["email"],
+                    "phone":    c["phone"],
+                    "emb":      emb_str,
+                })
+                conn.commit()
+            seeded += 1
+        except Exception as e:
+            print(f"Seed error for {c['hash']}: {e}")
+            failed += 1
+
+    # Verify count
+    with engine.connect() as conn:
+        total = conn.execute(text("SELECT COUNT(*) FROM candidate_profiles")).scalar()
+
+    return {
+        "seeded": seeded,
+        "failed": failed,
+        "total_candidates_in_db": total,
+        "message": f"Successfully seeded {seeded} test candidates. {total} total candidates in database.",
+    }
+
 # ── Job Evaluation (server-side key) ─────────────────────────────────────────
 class EvaluateRequest(BaseModel):
     jobTitle: str
