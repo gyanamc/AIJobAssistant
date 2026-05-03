@@ -1004,6 +1004,48 @@ async def evaluate_job(req: EvaluateRequest):
         raise HTTPException(504, "Evaluation service timed out.")
 
 # ── Embedding Backfill ────────────────────────────────────────────────────────
+@app.post("/api/v1/admin/migrate-candidate-embeddings")
+async def migrate_candidate_embeddings():
+    """
+    One-time migration: resize candidate_profiles embedding column to match
+    the current embedding model dimension (1536 for OpenAI, 768 for Ollama).
+    Clears existing embeddings so they get re-generated on next seed/sync.
+    """
+    openai_key = os.getenv("OPENAI_API_KEY")
+    target_dim = 1536 if openai_key else 768
+
+    try:
+        with engine.connect() as conn:
+            # Check current dimension
+            col = conn.execute(text("""
+                SELECT atttypmod FROM pg_attribute
+                JOIN pg_class ON pg_attribute.attrelid = pg_class.oid
+                WHERE pg_class.relname = 'candidate_profiles'
+                AND pg_attribute.attname = 'embedding'
+            """)).fetchone()
+
+            current_dim = col.atttypmod if col else None
+
+            if current_dim == target_dim:
+                total = conn.execute(text("SELECT COUNT(*) FROM candidate_profiles")).scalar()
+                return {"message": f"Column already at {target_dim} dimensions. No migration needed.", "total": total}
+
+            # Drop and recreate the column with correct dimension
+            conn.execute(text("ALTER TABLE candidate_profiles DROP COLUMN IF EXISTS embedding"))
+            conn.execute(text(f"ALTER TABLE candidate_profiles ADD COLUMN embedding vector({target_dim})"))
+            conn.commit()
+
+            total = conn.execute(text("SELECT COUNT(*) FROM candidate_profiles")).scalar()
+
+        return {
+            "message": f"Migrated embedding column to vector({target_dim}). Existing embeddings cleared.",
+            "target_dim": target_dim,
+            "total_candidates": total,
+            "next_step": "Call /api/v1/admin/seed-candidates to re-seed with correct embeddings.",
+        }
+    except Exception as e:
+        raise HTTPException(500, f"Migration failed: {str(e)}")
+
 @app.get("/api/v1/admin/db-status")
 async def db_status():
     """Check database status for debugging."""
