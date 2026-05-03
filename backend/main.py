@@ -188,11 +188,31 @@ async def embed(text_input: str) -> List[float]:
         return res.json()["embedding"]
 
 async def llm_reason(jd: str, candidate_summary: str, rank: int) -> str:
-    prompt = (f"You are a recruitment assistant. Explain in 2 sentences why this candidate is ranked #{rank} "
-              f"for the following job.\n\nJob Description:\n{jd[:500]}\n\nCandidate Profile:\n{candidate_summary}\n\n"
-              f"Be specific about matching skills and experience. Return only the explanation.")
+    prompt = (f"You are a recruitment assistant. In 1-2 sentences, explain why this candidate is ranked #{rank} "
+              f"for this job. Be specific about matching skills.\n\n"
+              f"Job: {jd[:300]}\nCandidate: {candidate_summary[:300]}\n\nExplanation:")
+    # Try Groq first (fast, available on Railway)
+    groq_key = os.getenv("GROQ_API_KEY")
+    if groq_key:
+        try:
+            async with httpx.AsyncClient(timeout=8.0) as client:
+                res = await client.post(
+                    "https://api.groq.com/openai/v1/chat/completions",
+                    headers={"Authorization": f"Bearer {groq_key}", "Content-Type": "application/json"},
+                    json={
+                        "model": "llama-3.1-8b-instant",
+                        "messages": [{"role": "user", "content": prompt}],
+                        "temperature": 0.3,
+                        "max_tokens": 80,
+                    }
+                )
+                if res.status_code == 200:
+                    return res.json()["choices"][0]["message"]["content"].strip()
+        except Exception:
+            pass
+    # Fallback: Ollama (local only)
     try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        async with httpx.AsyncClient(timeout=5.0) as client:
             res = await client.post(f"{OLLAMA_HOST}/api/generate", json={
                 "model": "llama3.2:1b",
                 "prompt": prompt,
