@@ -15,6 +15,10 @@ load_dotenv()
 
 app = FastAPI(title="AI Job Assistant API", version="3.0.1")
 
+# ── Privacy Policy ────────────────────────────────────────────────────────────
+from privacy_policy_route import router as privacy_router
+app.include_router(privacy_router)
+
 from fastapi.responses import JSONResponse
 from fastapi.requests import Request
 
@@ -175,7 +179,51 @@ async def get_recruiter_id(credentials: HTTPAuthorizationCredentials = Depends(s
         pass
     return None
 
-# ── Ollama helpers ────────────────────────────────────────────────────────────
+# ── LLM helpers ──────────────────────────────────────────────────────────────
+GROQ_API_URL   = "https://api.groq.com/openai/v1/chat/completions"
+GROQ_MODEL     = "llama-3.1-8b-instant"
+GROQ_TIMEOUT   = 30.0
+
+async def call_groq(
+    messages: list,
+    *,
+    temperature: float = 0.3,
+    max_tokens: int = 600,
+    json_mode: bool = True,
+    timeout: float = GROQ_TIMEOUT,
+) -> str:
+    """
+    Call the Groq API and return the raw content string.
+    Raises HTTPException on non-200, timeout, or missing key.
+    """
+    groq_key = os.getenv("GROQ_API_KEY")
+    if not groq_key:
+        raise HTTPException(503, "Groq API key not configured on server.")
+    payload: dict = {
+        "model": GROQ_MODEL,
+        "messages": messages,
+        "temperature": temperature,
+        "max_tokens": max_tokens,
+    }
+    if json_mode:
+        payload["response_format"] = {"type": "json_object"}
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            res = await client.post(
+                GROQ_API_URL,
+                headers={"Authorization": f"Bearer {groq_key}", "Content-Type": "application/json"},
+                json=payload,
+            )
+        if res.status_code != 200:
+            raise HTTPException(502, f"Groq returned {res.status_code}: {res.text[:200]}")
+        return res.json()["choices"][0]["message"]["content"]
+    except httpx.TimeoutException:
+        raise HTTPException(504, "Groq request timed out.")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(503, f"Groq error: {str(e)}")
+
 async def embed(text_input: str) -> List[float]:
     """Generate embeddings. Uses OpenAI text-embedding-3-small (1536-dim) if key set,
     otherwise falls back to Ollama nomic-embed-text (768-dim)."""
@@ -290,30 +338,19 @@ async def parse_resume(file: UploadFile = File(...)):
     )
 
     try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            res = await client.post(
-                "https://api.groq.com/openai/v1/chat/completions",
-                headers={"Authorization": f"Bearer {groq_key}", "Content-Type": "application/json"},
-                json={
-                    "model": "llama-3.1-8b-instant",
-                    "messages": [
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": f"Parse this resume:\n\n{text_content}"}
-                    ],
-                    "response_format": {"type": "json_object"},
-                    "temperature": 0.1,
-                    "max_tokens": 800
-                }
-            )
-        if res.status_code != 200:
-            raise HTTPException(502, f"Groq returned {res.status_code}")
-        parsed = json.loads(res.json()["choices"][0]["message"]["content"])
+        content = await call_groq(
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": f"Parse this resume:\n\n{text_content}"},
+            ],
+            temperature=0.1,
+            max_tokens=800,
+        )
+        parsed = json.loads(content)
         parsed["synced_at"] = ""
         return parsed
     except json.JSONDecodeError:
         raise HTTPException(502, "Invalid JSON from parsing model.")
-    except httpx.TimeoutException:
-        raise HTTPException(504, "Resume parsing timed out.")
 
 # ── Cover Letter ──────────────────────────────────────────────────────────────
 class CoverLetterRequest(BaseModel):
@@ -340,23 +377,13 @@ async def generate_cover_letter(req: CoverLetterRequest):
     )
 
     try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            res = await client.post(
-                "https://api.groq.com/openai/v1/chat/completions",
-                headers={"Authorization": f"Bearer {groq_key}", "Content-Type": "application/json"},
-                json={
-                    "model": "llama-3.1-8b-instant",
-                    "messages": [{"role": "user", "content": prompt}],
-                    "temperature": 0.7,
-                    "max_tokens": 400
-                }
-            )
-        if res.status_code != 200:
-            raise HTTPException(502, f"Groq returned {res.status_code}")
-        cover_letter = res.json()["choices"][0]["message"]["content"].strip()
-        return {"cover_letter": cover_letter}
-    except httpx.TimeoutException:
-        raise HTTPException(504, "Cover letter generation timed out.")
+        cover_letter = await call_groq(
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.7,
+            max_tokens=400,
+            json_mode=False,
+        )
+        return {"cover_letter": cover_letter.strip()}
 
 # ── Job Feed ──────────────────────────────────────────────────────────────────
 async def _embed_for_search(text_input: str) -> list:
@@ -615,28 +642,17 @@ async def ollama_chat(request: OllamaChatRequest):
         pass
 
     # Ollama unavailable — fall back to Groq
-    groq_key = os.getenv("GROQ_API_KEY")
-    if groq_key:
-        try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                res = await client.post(
-                    "https://api.groq.com/openai/v1/chat/completions",
-                    headers={"Authorization": f"Bearer {groq_key}", "Content-Type": "application/json"},
-                    json={
-                        "model": "llama-3.1-8b-instant",
-                        "messages": [{"role": m.role, "content": m.content} for m in request.messages],
-                        "temperature": (request.options or {}).get("temperature", 0.3),
-                        "max_tokens": 600,
-                        "response_format": {"type": "json_object"},
-                    }
-                )
-            if res.status_code == 200:
-                content = res.json()["choices"][0]["message"]["content"]
-                return {"content": content}
-        except Exception as e:
-            raise HTTPException(503, f"Both Ollama and Groq unavailable: {str(e)}")
-
-    raise HTTPException(503, "Ollama service unavailable and no Groq key configured.")
+    try:
+        temperature = (request.options or {}).get("temperature", 0.3)
+        content = await call_groq(
+            messages=[{"role": m.role, "content": m.content} for m in request.messages],
+            temperature=temperature,
+        )
+        return {"content": content}
+    except HTTPException as e:
+        if e.status_code == 503 and "not configured" in e.detail:
+            raise HTTPException(503, "Ollama service unavailable and no Groq key configured.")
+        raise HTTPException(503, f"Both Ollama and Groq unavailable: {e.detail}")
 
 # ── Groq Proxy ────────────────────────────────────────────────────────────────
 @app.post("/api/v1/groq/chat")
@@ -645,34 +661,13 @@ async def groq_chat(request: OllamaChatRequest):
     Groq proxy for the Chrome extension's free tier evaluation.
     Accepts the same message format as the Ollama proxy for compatibility.
     """
-    groq_key = os.getenv("GROQ_API_KEY")
-    if not groq_key:
-        raise HTTPException(503, "Groq API key not configured on server.")
-
-    try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            res = await client.post(
-                "https://api.groq.com/openai/v1/chat/completions",
-                headers={"Authorization": f"Bearer {groq_key}", "Content-Type": "application/json"},
-                json={
-                    "model": "llama-3.1-8b-instant",
-                    "messages": [{"role": m.role, "content": m.content} for m in request.messages],
-                    "temperature": (request.options or {}).get("temperature", 0.3),
-                    "max_tokens": 600,
-                    "response_format": {"type": "json_object"},
-                }
-            )
-        if res.status_code != 200:
-            raise HTTPException(502, f"Groq returned {res.status_code}: {res.text[:200]}")
-        # Return in the same format as Ollama proxy so extension code works unchanged
-        content = res.json()["choices"][0]["message"]["content"]
-        return {"choices": [{"message": {"content": content}}]}
-    except httpx.TimeoutException:
-        raise HTTPException(504, "Groq request timed out.")
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(503, f"Groq proxy error: {str(e)}")
+    temperature = (request.options or {}).get("temperature", 0.3)
+    content = await call_groq(
+        messages=[{"role": m.role, "content": m.content} for m in request.messages],
+        temperature=temperature,
+    )
+    # Return in the same format as Ollama proxy so extension code works unchanged
+    return {"choices": [{"message": {"content": content}}]}
 
 # ── Profile Sync ──────────────────────────────────────────────────────────────
 class ProfileSyncRequest(BaseModel):
@@ -1043,10 +1038,6 @@ class EvaluateRequest(BaseModel):
 
 @app.post("/api/v1/evaluate")
 async def evaluate_job(req: EvaluateRequest):
-    groq_key = os.getenv("GROQ_API_KEY")
-    if not groq_key:
-        raise HTTPException(503, "Evaluation service not configured.")
-
     system_prompt = (
         "You are an expert AI career assistant evaluating job matches. "
         "Respond with EXACTLY valid JSON with these keys:\n"
@@ -1061,24 +1052,12 @@ async def evaluate_job(req: EvaluateRequest):
     )
 
     try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            res = await client.post(
-                "https://api.groq.com/openai/v1/chat/completions",
-                headers={"Authorization": f"Bearer {groq_key}", "Content-Type": "application/json"},
-                json={
-                    "model": "llama-3.1-8b-instant",
-                    "messages": [
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user",   "content": user_prompt}
-                    ],
-                    "response_format": {"type": "json_object"},
-                    "temperature": 0.3,
-                    "max_tokens": 600
-                }
-            )
-        if res.status_code != 200:
-            raise HTTPException(502, f"Groq returned {res.status_code}")
-        evaluation = res.json()["choices"][0]["message"]["content"]
+        evaluation = await call_groq(
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user",   "content": user_prompt},
+            ],
+        )
         eval_dict = json.loads(evaluation)
 
         # Store the evaluated job match persistently
@@ -1099,8 +1078,6 @@ async def evaluate_job(req: EvaluateRequest):
         return {"evaluation": eval_dict}
     except json.JSONDecodeError:
         raise HTTPException(502, "Invalid JSON from evaluation model.")
-    except httpx.TimeoutException:
-        raise HTTPException(504, "Evaluation service timed out.")
 
 # ── Embedding Backfill ────────────────────────────────────────────────────────
 @app.post("/api/v1/admin/migrate-candidate-embeddings")
