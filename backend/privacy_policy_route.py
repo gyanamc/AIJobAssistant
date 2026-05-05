@@ -133,3 +133,113 @@ PRIVACY_HTML = """<!DOCTYPE html>
 @router.get("/privacy-policy", response_class=HTMLResponse)
 async def privacy_policy():
     return PRIVACY_HTML
+
+
+DELETE_HTML = """<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Delete My Account — AntiGravity Jobs</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #0a0a0a; --surface: #111111; --border: #1e1e1e;
+      --text: #e8e8e8; --muted: #888; --accent: #c8f135; --danger: #ff4d4d;
+      --font: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    }
+    body { background: var(--bg); color: var(--text); font-family: var(--font); font-size: 16px; line-height: 1.7; -webkit-font-smoothing: antialiased; }
+    header { border-bottom: 1px solid var(--border); padding: 1.25rem 2rem; display: flex; align-items: center; justify-content: space-between; }
+    .logo { font-size: 1rem; font-weight: 700; letter-spacing: -0.02em; color: var(--text); text-decoration: none; }
+    .logo span { color: var(--accent); }
+    nav a { color: var(--muted); text-decoration: none; font-size: 0.875rem; }
+    nav a:hover { color: var(--text); }
+    .hero { max-width: 600px; margin: 5rem auto 3rem; padding: 0 2rem; }
+    .label { font-size: 0.75rem; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: var(--danger); margin-bottom: 1rem; }
+    h1 { font-size: clamp(1.75rem, 4vw, 2.5rem); font-weight: 800; letter-spacing: -0.03em; line-height: 1.1; margin-bottom: 1rem; }
+    .content { max-width: 600px; margin: 0 auto 6rem; padding: 0 2rem; }
+    p { color: #b0b0b0; margin-bottom: 1rem; }
+    ul { color: #b0b0b0; padding-left: 1.25rem; margin-bottom: 1.5rem; }
+    ul li { margin-bottom: 0.4rem; }
+    .card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 2rem; margin-top: 2rem; }
+    .card h2 { font-size: 1rem; font-weight: 700; margin-bottom: 1rem; color: var(--text); }
+    .form-group { margin-bottom: 1.25rem; }
+    label { display: block; font-size: 0.875rem; color: var(--muted); margin-bottom: 0.4rem; }
+    input, textarea { width: 100%; background: #1a1a1a; border: 1px solid var(--border); border-radius: 8px; padding: 0.75rem 1rem; color: var(--text); font-size: 0.9375rem; font-family: var(--font); outline: none; transition: border-color 0.2s; }
+    input:focus, textarea:focus { border-color: #444; }
+    textarea { resize: vertical; min-height: 100px; }
+    .btn { display: inline-block; background: var(--danger); color: #fff; border: none; border-radius: 8px; padding: 0.75rem 1.5rem; font-size: 0.9375rem; font-weight: 600; cursor: pointer; font-family: var(--font); transition: opacity 0.2s; }
+    .btn:hover { opacity: 0.85; }
+    .note { font-size: 0.8125rem; color: var(--muted); margin-top: 1rem; }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    footer { border-top: 1px solid var(--border); padding: 2rem; text-align: center; color: var(--muted); font-size: 0.8125rem; }
+    .success { display: none; background: #0d2b0d; border: 1px solid #1a5c1a; border-radius: 8px; padding: 1rem 1.25rem; color: #4caf50; margin-top: 1rem; font-size: 0.9375rem; }
+  </style>
+</head>
+<body>
+  <header>
+    <a href="https://antigravityjobs.com" class="logo">Anti<span>Gravity</span></a>
+    <nav><a href="https://antigravityjobs.com">&larr; Back to home</a></nav>
+  </header>
+  <div class="hero">
+    <div class="label">Account Management</div>
+    <h1>Delete My Account</h1>
+  </div>
+  <div class="content">
+    <p>You can request deletion of your AntiGravity account and all associated data by submitting the form below. We will process your request within 30 days and send a confirmation to your email address.</p>
+    <p><strong>Data that will be deleted:</strong></p>
+    <ul>
+      <li>Your profile information (name, email, phone number)</li>
+      <li>Your resume data and skills profile</li>
+      <li>Your job interaction history (saved jobs, swipes, applications)</li>
+      <li>Any cover letters or drafts generated in the app</li>
+      <li>Your anonymised recruiter-facing profile (if you opted in to sharing)</li>
+    </ul>
+    <p>Note: Deleting your account will also revoke your Google OAuth connection to AntiGravity. You will lose access to all app features immediately upon deletion.</p>
+
+    <div class="card">
+      <h2>Submit a deletion request</h2>
+      <form id="deleteForm" onsubmit="handleSubmit(event)">
+        <div class="form-group">
+          <label for="email">Email address associated with your account</label>
+          <input type="email" id="email" name="email" placeholder="you@example.com" required />
+        </div>
+        <div class="form-group">
+          <label for="reason">Reason for deletion (optional)</label>
+          <textarea id="reason" name="reason" placeholder="Let us know why you're leaving (optional)..."></textarea>
+        </div>
+        <button type="submit" class="btn">Request Account Deletion</button>
+        <div class="success" id="successMsg">
+          &#10003; Your deletion request has been received. We'll process it within 30 days and confirm via email.
+        </div>
+        <p class="note">Alternatively, you can email us directly at <a href="mailto:privacy@antigravityjobs.com">privacy@antigravityjobs.com</a> with the subject line "Account Deletion Request".</p>
+      </form>
+    </div>
+  </div>
+  <footer>
+    <p>&copy; 2026 AntiGravity &middot; <a href="https://antigravityjobs.com">Home</a> &middot; <a href="/privacy-policy">Privacy Policy</a> &middot; <a href="mailto:privacy@antigravityjobs.com">Contact</a></p>
+  </footer>
+  <script>
+    async function handleSubmit(e) {
+      e.preventDefault();
+      const email = document.getElementById('email').value;
+      const reason = document.getElementById('reason').value;
+      try {
+        await fetch('/api/v1/account/delete-request', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, reason })
+        });
+      } catch (_) {}
+      document.getElementById('successMsg').style.display = 'block';
+      document.getElementById('deleteForm').querySelector('button').disabled = true;
+    }
+  </script>
+</body>
+</html>"""
+
+
+@router.get("/delete-account", response_class=HTMLResponse)
+async def delete_account_page():
+    return DELETE_HTML

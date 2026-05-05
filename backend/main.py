@@ -15,7 +15,7 @@ load_dotenv()
 
 app = FastAPI(title="AI Job Assistant API", version="3.0.1")
 
-# ── Privacy Policy ────────────────────────────────────────────────────────────
+# ── Privacy Policy & Account Deletion ────────────────────────────────────────
 from privacy_policy_route import router as privacy_router
 app.include_router(privacy_router)
 
@@ -289,6 +289,18 @@ async def llm_reason(jd: str, candidate_summary: str, rank: int) -> str:
 @app.get("/")
 def health():
     return {"status": "ok", "version": "3.0.1"}
+
+# ── Account Deletion Request ──────────────────────────────────────────────────
+class DeleteRequest(BaseModel):
+    email: str
+    reason: Optional[str] = ""
+
+@app.post("/api/v1/account/delete-request")
+async def account_delete_request(req: DeleteRequest):
+    """Log a deletion request. In production, this should trigger an email notification."""
+    print(f"DELETION REQUEST: email={req.email}, reason={req.reason}")
+    # TODO: send email notification to privacy@antigravityjobs.com
+    return {"status": "received", "message": "Your deletion request has been logged. We will process it within 30 days."}
 
 # ── Resume Parse ──────────────────────────────────────────────────────────────
 @app.post("/api/v1/resume/parse")
