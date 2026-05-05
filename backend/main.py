@@ -384,6 +384,10 @@ async def generate_cover_letter(req: CoverLetterRequest):
             json_mode=False,
         )
         return {"cover_letter": cover_letter.strip()}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(503, f"Cover letter generation failed: {str(e)}")
 
 # ── Job Feed ──────────────────────────────────────────────────────────────────
 async def _embed_for_search(text_input: str) -> list:
