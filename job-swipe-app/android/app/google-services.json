@@ -1,0 +1,47 @@
+{
+  "project_info": {
+    "project_number": "369645233419",
+    "project_id": "antigravity-jobs",
+    "storage_bucket": "antigravity-jobs.appspot.com"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:369645233419:android:placeholder",
+        "android_client_info": {
+          "package_name": "com.antigravity.jobs"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "369645233419-8ila29dtmod6bm5hd0fo95ns9e7ehg52.apps.googleusercontent.com",
+          "client_type": 3
+        },
+        {
+          "client_id": "369645233419-lf3j22q487ni1369ockpd1ukoagl807k.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.antigravity.jobs",
+            "certificate_hash": "5E8F16062EA3CD2C4A0D547876BAA6F38CABF625"
+          }
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "REPLACE_WITH_ANDROID_API_KEY"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "369645233419-8ila29dtmod6bm5hd0fo95ns9e7ehg52.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

@@ -76,7 +76,7 @@ android {
 
     namespace "com.jobswipeapp"
     defaultConfig {
-        applicationId "com.jobswipeapp"
+        applicationId "com.antigravity.jobs"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1

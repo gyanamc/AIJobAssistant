@@ -1,13 +1,23 @@
 import { create } from 'zustand';
 import { createClient } from '@supabase/supabase-js';
+import {
+  GoogleSignin,
+  statusCodes,
+} from '@react-native-google-signin/google-signin';
 import { getItem, setItem, removeItem, KEYS } from '../utils/storage';
 import type { AuthSession } from '../types';
 
 const SUPABASE_URL = 'https://fqwocsqfzzkqbdmzadhz.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZxd29jc3FmenprcWJkbXphZGh6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ1MjE0NjUsImV4cCI6MjA5MDA5NzQ2NX0.EAZUXOhI_Ia-vSuVE1saOnumI_Vt-p4d7ulnOZ9HeC4';
 
-// Deep link scheme — must match android/app/src/main/AndroidManifest.xml
-const REDIRECT_URL = 'jobswipeapp://auth/callback';
+// Web client ID from Google Cloud Console — required by the native SDK
+const WEB_CLIENT_ID = '369645233419-8ila29dtmod6bm5hd0fo95ns9e7ehg52.apps.googleusercontent.com';
+
+// Configure the native Google SDK once at module load
+GoogleSignin.configure({
+  webClientId: WEB_CLIENT_ID,
+  offlineAccess: true,
+});
 
 export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   auth: {
@@ -20,14 +30,14 @@ export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
 interface AuthStore {
   session: AuthSession | null;
   isAuthenticated: boolean;
-  getOAuthUrl: () => Promise<string>;
-  handleOAuthCallback: (url: string) => Promise<void>;
+  /** Trigger the OS-level Google account picker and exchange the ID token with Supabase */
+  signInWithGoogle: () => Promise<void>;
   signOut: () => Promise<void>;
   refreshSession: () => Promise<void>;
   loadSession: () => Promise<void>;
 }
 
-export const useAuthStore = create<AuthStore>((set, get) => ({
+export const useAuthStore = create<AuthStore>((set, _get) => ({
   session: null,
   isAuthenticated: false,
 
@@ -38,36 +48,25 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
     }
   },
 
-  getOAuthUrl: async () => {
-    const { data, error } = await supabase.auth.signInWithOAuth({
-      provider: 'google',
-      options: {
-        redirectTo: REDIRECT_URL,
-        skipBrowserRedirect: true,
-      },
-    });
-    if (error) throw new Error(error.message);
-    if (!data?.url) throw new Error('No OAuth URL returned');
-    return data.url;
-  },
+  signInWithGoogle: async () => {
+    // Ensure Google Play Services are available (no-op on iOS)
+    await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
 
-  handleOAuthCallback: async (url: string) => {
-    // Extract tokens from URL fragment or query params
-    const params = new URLSearchParams(url.split('#')[1] || url.split('?')[1] || '');
-    const accessToken = params.get('access_token');
-    const refreshToken = params.get('refresh_token');
-    
-    if (!accessToken) {
-      throw new Error('No access token in callback URL');
+    // Open the native OS account picker
+    const response = await GoogleSignin.signIn();
+
+    if (!response.data?.idToken) {
+      throw new Error('Google Sign-In did not return an ID token');
     }
 
-    const { data, error } = await supabase.auth.setSession({
-      access_token: accessToken,
-      refresh_token: refreshToken || '',
+    // Exchange the Google ID token for a Supabase session
+    const { data, error } = await supabase.auth.signInWithIdToken({
+      provider: 'google',
+      token: response.data.idToken,
     });
 
     if (error) throw error;
-    if (!data.session) throw new Error('No session returned');
+    if (!data.session) throw new Error('No Supabase session returned');
 
     const authSession: AuthSession = {
       access_token: data.session.access_token,
@@ -83,6 +82,11 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
   },
 
   signOut: async () => {
+    try {
+      await GoogleSignin.signOut();
+    } catch {
+      // Ignore — the user may not have signed in via Google
+    }
     await supabase.auth.signOut();
     await removeItem(KEYS.AUTH_SESSION);
     set({ session: null, isAuthenticated: false });
@@ -122,4 +126,3 @@ supabase.auth.onAuthStateChange(async (_event, session) => {
     useAuthStore.setState({ session: null, isAuthenticated: false });
   }
 });
-

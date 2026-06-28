@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
-import { OAuthWebView } from '../components/OAuthWebView';
+import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { useAuthStore } from '../store/useAuthStore';
 import { C, T, R, S } from '../theme';
 import type { JobCard } from '../types';
@@ -15,6 +14,7 @@ type AuthGateState = 'idle' | 'loading' | 'error';
 export default function AuthGateModal({ route, navigation }: any) {
   const { pendingJob, returnTo } = (route.params ?? {}) as AuthGateParams;
   const isAuthenticated = useAuthStore(s => s.isAuthenticated);
+  const signInWithGoogle = useAuthStore(s => s.signInWithGoogle);
   const [state, setState] = useState<AuthGateState>('idle');
   const [errorMessage, setErrorMessage] = useState<string>('');
 
@@ -38,30 +38,27 @@ export default function AuthGateModal({ route, navigation }: any) {
     }
   };
 
-  const handleSignInPress = () => {
+  const handleSignInPress = async () => {
     setState('loading');
-  };
-
-  const handleOAuthSuccess = () => {
-    // Auth store will update isAuthenticated, triggering the useEffect
-    // But we can also handle it directly here
-    handleAuthSuccess();
-  };
-
-  const handleOAuthCancel = () => {
-    // User cancelled or navigated away - return to idle
-    setState('idle');
-  };
-
-  const handleOAuthError = (message: string) => {
-    // Show error state with retry option
-    setErrorMessage(message);
-    setState('error');
+    try {
+      await signInWithGoogle();
+      // Auth store will update isAuthenticated, triggering the useEffect
+    } catch (error: any) {
+      // Handle user cancellation gracefully
+      if (error?.code === 'SIGN_IN_CANCELLED') {
+        setState('idle');
+        return;
+      }
+      setErrorMessage(
+        error instanceof Error ? error.message : 'Sign-in failed. Please try again.',
+      );
+      setState('error');
+    }
   };
 
   const handleRetry = () => {
     setErrorMessage('');
-    setState('loading');
+    handleSignInPress();
   };
 
   const handleCancel = () => {
@@ -72,11 +69,10 @@ export default function AuthGateModal({ route, navigation }: any) {
   if (state === 'loading') {
     return (
       <View style={styles.container}>
-        <OAuthWebView
-          onSuccess={handleOAuthSuccess}
-          onCancel={handleOAuthCancel}
-          onError={handleOAuthError}
-        />
+        <View style={styles.content}>
+          <ActivityIndicator size="large" color={C.accent} />
+          <Text style={styles.loadingText}>Signing in…</Text>
+        </View>
       </View>
     );
   }
@@ -160,6 +156,11 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginBottom: S.xxxl,
     lineHeight: T.loose,
+  },
+  loadingText: {
+    marginTop: S.lg,
+    fontSize: T.md,
+    color: C.textSub,
   },
   errorMessage: {
     fontSize: T.md,

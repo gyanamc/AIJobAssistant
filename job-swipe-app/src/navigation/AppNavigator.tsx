@@ -123,7 +123,7 @@ export default function AppNavigator() {
         <Stack.Screen name="JobDetail"  component={JobDetailSheet}      options={{ presentation: 'modal' }} />
         <Stack.Screen name="HILReview"  component={HILReviewScreen}     options={{ presentation: 'modal' }} />
         <Stack.Screen name="AuthGate"   component={AuthGateModal}       options={{ presentation: 'modal' }} />
-        <Stack.Screen name="ApplyWebView" component={ApplyWebViewScreen} options={{ presentation: 'fullScreenModal' }} />
+        <Stack.Screen name="ApplyWebView" component={ApplyWebViewScreen} options={{ presentation: 'modal' }} />
       </Stack.Navigator>
     </NavigationContainer>
   );
