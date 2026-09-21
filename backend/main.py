@@ -181,7 +181,7 @@ async def get_recruiter_id(credentials: HTTPAuthorizationCredentials = Depends(s
 
 # ── LLM helpers ──────────────────────────────────────────────────────────────
 GROQ_API_URL   = "https://api.groq.com/openai/v1/chat/completions"
-GROQ_MODEL     = "llama-3.1-8b-instant"
+GROQ_MODEL     = os.getenv("GROQ_MODEL", "qwen/qwen3.8-27b")
 GROQ_TIMEOUT   = 30.0
 
 async def call_groq(
@@ -205,7 +205,8 @@ async def call_groq(
         "temperature": temperature,
         "max_tokens": max_tokens,
     }
-    if json_mode:
+    has_json_mention = any("json" in str(m.get("content", "")).lower() for m in messages)
+    if json_mode and has_json_mention:
         payload["response_format"] = {"type": "json_object"}
     try:
         async with httpx.AsyncClient(timeout=timeout) as client:
@@ -261,7 +262,7 @@ async def llm_reason(jd: str, candidate_summary: str, rank: int) -> str:
                     "https://api.groq.com/openai/v1/chat/completions",
                     headers={"Authorization": f"Bearer {groq_key}", "Content-Type": "application/json"},
                     json={
-                        "model": "llama-3.1-8b-instant",
+                        "model": GROQ_MODEL,
                         "messages": [{"role": "user", "content": prompt}],
                         "temperature": 0.3,
                         "max_tokens": 80,
@@ -638,6 +639,7 @@ class OllamaChatRequest(BaseModel):
     model: str = "llama3.2:1b"
     messages: List[OllamaMessage]
     options: Optional[dict] = {"temperature": 0.3}
+    response_format: Optional[dict] = None
     stream: bool = False
 
 @app.post("/api/v1/ollama/chat")
@@ -648,9 +650,9 @@ async def ollama_chat(request: OllamaChatRequest):
         "options": request.options or {"temperature": 0.3},
         "stream": False
     }
-    # Try Ollama first
+    # Try Ollama first (allow up to 45s for model warm-up on CPU)
     try:
-        async with httpx.AsyncClient(timeout=15.0) as client:
+        async with httpx.AsyncClient(timeout=45.0) as client:
             res = await client.post(f"{OLLAMA_HOST}/api/chat", json=payload)
         if res.status_code == 200:
             return {"content": res.json().get("message", {}).get("content", "")}
