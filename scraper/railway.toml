@@ -1,0 +1,7 @@
+[build]
+builder = "nixpacks"
+
+[deploy]
+startCommand = "python job_ingestion.py"
+restartPolicyType = "NEVER"
+
