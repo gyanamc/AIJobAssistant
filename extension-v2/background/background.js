@@ -5,6 +5,8 @@ console.log('AI Job Assistant v2 background worker started.');
 // ── Constants ─────────────────────────────────────────────────────────────
 const DEFAULT_OLLAMA_URL  = 'https://aijobassistant-production.up.railway.app';
 const DEFAULT_OLLAMA_MODEL = 'llama3.2:1b';
+const ANTHROPIC_MODEL = 'claude-sonnet-5';
+const ANTHROPIC_API_VERSION = '2026-10-21';
 // Background is the only stable context across SPA navigations.
 // Content scripts get re-injected on every URL change — this Set prevents
 // the same job from being evaluated more than once per session.
@@ -117,8 +119,11 @@ async function evaluateJob(jobData) {
 
   // Prefer the deterministic evidence score when it is available. Fall back to
   // the model decision only when the extension cannot calculate a score.
-  const modelMatch = evaluation.is_match === true || evaluation.is_match === 'true' || evaluation.is_match === 1;
-  evaluation.is_match = Number.isFinite(evaluation.score) ? evaluation.score >= 60 : modelMatch;
+  evaluation.is_match = resolveMatchClassification(
+    evaluation.is_match,
+    evaluation.score,
+    evaluation.scoreCoverage
+  );
 
   if (evaluation.is_match) {
     log(`Match confirmed — saving: ${jobData.title}`);
@@ -174,11 +179,11 @@ function enrichEvaluation(raw, jobData, storage) {
     { value: reqsScore, weight: 0.35 },
     { value: respScore, weight: 0.25 }
   ]);
-
-  const availableDimensions = [skillsScore, reqsScore, respScore].filter(Number.isFinite).length;
+  const scoreCoverage = buildScoreCoverage({ skillsScore, reqsScore, respScore });
+  const availableDimensions = scoreCoverage.assessedDimensions;
   const scoreExplanation = score === null
     ? 'Compatibility score unavailable: add a resume summary and ensure the job description includes assessable skills, requirements, or responsibilities.'
-    : `Evidence-based compatibility from ${availableDimensions} available dimension${availableDimensions === 1 ? '' : 's'} (skills 40%, requirements 35%, responsibilities 25%; unavailable dimensions excluded).`;
+    : `${scoreCoverage.status === 'full' ? 'Full' : 'Partial'} evidence-based compatibility from ${availableDimensions} of 3 dimensions (skills 40%, requirements 35%, responsibilities 25%; available weights are normalized and unavailable dimensions are excluded).`;
 
   return {
     ...raw, score, skillsScore, reqsScore, respScore,
@@ -186,8 +191,38 @@ function enrichEvaluation(raw, jobData, storage) {
     missingSkills:    missingSkills.slice(0, 5),
     requirements,
     responsibilities,
-    scoreExplanation
+    scoreExplanation,
+    scoreCoverage
   };
+}
+
+function buildScoreCoverage({ skillsScore, reqsScore, respScore }) {
+  const availability = {
+    skills: Number.isFinite(skillsScore),
+    requirements: Number.isFinite(reqsScore),
+    responsibilities: Number.isFinite(respScore)
+  };
+  const availableDimensions = Object.entries(availability)
+    .filter(([, available]) => available)
+    .map(([name]) => name);
+  const assessedDimensions = availableDimensions.length;
+  return {
+    availability,
+    availableDimensions,
+    assessedDimensions,
+    totalDimensions: 3,
+    coveragePercentage: Math.round((assessedDimensions / 3) * 100),
+    status: assessedDimensions === 3 ? 'full' : assessedDimensions > 0 ? 'partial' : 'unavailable',
+    minimumDimensionsForClassification: 2,
+    meetsClassificationThreshold: assessedDimensions >= 2
+  };
+}
+
+function resolveMatchClassification(modelValue, score, coverage) {
+  const modelMatch = modelValue === true || modelValue === 'true' || modelValue === 1;
+  return coverage?.meetsClassificationThreshold && Number.isFinite(score)
+    ? score >= 60
+    : modelMatch;
 }
 
 function normalizeAssessmentItems(items, fallback) {
@@ -245,7 +280,8 @@ function weightedAvailableScore(parts) {
   const available = parts.filter(part => Number.isFinite(part.value));
   if (!available.length) return null;
   const totalWeight = available.reduce((sum, part) => sum + part.weight, 0);
-  return Math.round(available.reduce((sum, part) => sum + part.value * part.weight, 0) / totalWeight);
+  const score = Math.round(available.reduce((sum, part) => sum + part.value * part.weight, 0) / totalWeight);
+  return Math.min(100, Math.max(0, score));
 }
 
 function extractBulletPoints(description, keyword) {
@@ -409,7 +445,7 @@ async function evalWithAnthropic(jobData, storage) {
     const text = await requestAnthropicText(
       storage.apiKey,
       buildUserPrompt(jobData, storage) + '\n\nReturn ONLY valid JSON.',
-      { system: buildSystemPrompt(), maxTokens: 900, temperature: 0.3 }
+      { system: buildSystemPrompt(), maxTokens: 900 }
     );
     const content = parseJSON(text);
     log(`Match: ${content.is_match} — ${content.reasoning?.substring(0, 60)}...`);
@@ -430,9 +466,39 @@ async function generateCoverLetter(jobData) {
 
 async function rewriteResume(jobData) {
   const storage = await chrome.storage.local.get(['aiModel', 'apiKey', 'resumeSummary', 'groqApiKey', 'ollamaBackendUrl', 'ollamaModel']);
-  const prompt = `Rewrite this resume summary to match the job (3-4 sentences).\nJob: ${jobData.title} at ${jobData.company}\nDescription: ${(jobData.description || '').substring(0, 800)}\nCurrent Summary: ${storage.resumeSummary || ''}\nReturn only the rewritten summary.`;
-  try { return { success: true, rewritten: await callLLM(storage, prompt) }; }
+  const resumeSummary = String(storage.resumeSummary || '').trim();
+  if (!resumeSummary) {
+    return { success: false, error: 'Add your resume summary in the Profile section before tailoring it.' };
+  }
+  const prompt = buildResumeRewritePrompt(jobData, resumeSummary);
+  try {
+    const rewritten = String(await callLLM(storage, prompt) || '').trim();
+    if (!rewritten) throw new Error('The AI returned an empty resume summary. Please try again.');
+    return { success: true, rewritten };
+  }
   catch (e) { return { success: false, error: e.message }; }
+}
+
+function buildResumeRewritePrompt(jobData, resumeSummary) {
+  return `Create a professional 3-4 sentence resume summary tailored to the selected job.
+
+ORIGINAL RESUME SUMMARY (the only allowed source of candidate facts):
+${resumeSummary}
+
+SELECTED JOB:
+Title: ${jobData.title || ''}
+Company: ${jobData.company || ''}
+Description: ${(jobData.description || '').substring(0, 1200)}
+
+FACTUALITY RULES:
+- Use only information explicitly present in the original resume summary.
+- Never invent employers, job titles, employment dates, qualifications, certifications, technical skills, projects, revenue, cost savings, percentages, business achievements, or years of experience.
+- Never increase years of experience or claim expertise based only on the job description.
+- Never convert a job requirement into an assumed candidate qualification.
+- If the resume lacks evidence for an important requirement, omit that claim.
+- You may reorder and rephrase existing skills, experience, leadership, achievements, and business outcomes to emphasize relevance without changing the facts.
+
+Return only the rewritten resume summary.`;
 }
 
 async function callLLM(storage, prompt) {
@@ -484,30 +550,34 @@ async function callLLM(storage, prompt) {
     if (typeof data?.candidates?.[0]?.content?.parts?.[0]?.text !== 'string') throw new Error('Gemini returned an invalid response.');
     return data.candidates[0].content.parts[0].text;
   }
-  if (model === 'anthropic' && storage.apiKey) {
-    return requestAnthropicText(storage.apiKey, prompt, { maxTokens: 1000, temperature: 0.5 });
+  if (model === 'anthropic') {
+    return requestAnthropicText(storage.apiKey, prompt, { maxTokens: 1000 });
   }
   throw new Error('No suitable LLM configured.');
 }
 
 async function requestAnthropicText(apiKey, prompt, options = {}) {
   if (!apiKey) throw new Error('Anthropic API key is missing.');
-  const res = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01',
-      'anthropic-dangerous-direct-browser-access': 'true',
-      'content-type': 'application/json'
-    },
-    body: JSON.stringify({
-      model: 'claude-3-5-sonnet-20241022',
-      max_tokens: options.maxTokens || 800,
-      temperature: options.temperature ?? 0.5,
-      ...(options.system ? { system: options.system } : {}),
-      messages: [{ role: 'user', content: prompt }]
-    })
-  });
+  let res;
+  try {
+    res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'x-api-key': apiKey,
+        'anthropic-version': ANTHROPIC_API_VERSION,
+        'anthropic-dangerous-direct-browser-access': 'true',
+        'content-type': 'application/json'
+      },
+      body: JSON.stringify({
+        model: ANTHROPIC_MODEL,
+        max_tokens: options.maxTokens || 800,
+        ...(options.system ? { system: options.system } : {}),
+        messages: [{ role: 'user', content: prompt }]
+      })
+    });
+  } catch (_) {
+    throw new Error('Anthropic network request failed. Check your connection and try again.');
+  }
   if (!res.ok) throw providerHttpError('Anthropic', res.status);
   const data = await res.json();
   const text = data?.content?.find(block => block?.type === 'text')?.text;
@@ -516,8 +586,10 @@ async function requestAnthropicText(apiKey, prompt, options = {}) {
 }
 
 function providerHttpError(provider, status) {
+  if (status === 400) return new Error(`${provider} rejected the request. Check the selected model and input.`);
   if (status === 401 || status === 403) return new Error(`${provider} authentication failed. Check the configured API key.`);
   if (status === 429) return new Error(`${provider} rate limit reached. Try again later.`);
+  if (status >= 500) return new Error(`${provider} service is temporarily unavailable (HTTP ${status}).`);
   return new Error(`${provider} request failed (HTTP ${status}).`);
 }
 
@@ -560,6 +632,7 @@ function _doSave(jobData, evaluation) {
         skillsScore:   evaluation.skillsScore  ?? null,
         reqsScore:     evaluation.reqsScore    ?? null,
         respScore:     evaluation.respScore    ?? null,
+        scoreCoverage: evaluation.scoreCoverage || null,
         matchedSkills: evaluation.matchedSkills  || [],
         missingSkills: evaluation.missingSkills  || [],
         reasoning:     evaluation.reasoning      || '',

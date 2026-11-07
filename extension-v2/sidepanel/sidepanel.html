@@ -74,6 +74,7 @@
           </div>
         </div>
         <p class="score-explanation" id="scoreExplanation">Compatibility score is based on available resume and job evidence.</p>
+        <p class="score-coverage" id="scoreCoverage">Assessment coverage: unavailable</p>
       </div>
 
       <!-- Action Buttons -->
@@ -81,16 +82,6 @@
         <button class="action-btn" id="saveJobBtn">&#128190; Save Job</button>
         <button class="action-btn" id="coverLetterBtn">&#128221; Generate Cover Letter</button>
         <button class="action-btn" id="rewriteResumeBtn">&#128196; Tailor Resume Summary</button>
-      </div>
-
-      <!-- Review Prompt Card -->
-      <div id="reviewPromptCard" style="display: none; margin: 10px 0; padding: 14px; background-color: var(--bg-card2, #1f2235); border: 1px solid var(--border, #2a2d3e); border-left: 4px solid var(--blue, #448aff); border-radius: var(--radius, 8px); box-shadow: var(--shadow); transition: all 0.3s ease;">
-        <h4 style="margin: 0 0 6px 0; font-size: 13px; font-weight: 600; color: var(--blue, #448aff); display: flex; align-items: center; gap: 4px;">Enjoying your AI Job Assistant? </h4>
-        <p style="margin: 0 0 12px 0; font-size: 12px; line-height: 1.5; color: var(--text-muted, #8b8fa8);">As an independent developer, your 5-star review helps me keep this tool free for job seekers. It takes just 10 seconds!</p>
-        <div style="display: flex; gap: 8px; justify-content: flex-end;">
-          <button id="maybeLaterBtn" style="padding: 5px 10px; font-size: 11px; font-weight: 600; color: var(--text-muted, #8b8fa8); background-color: transparent; border: 1px solid var(--border, #2a2d3e); border-radius: var(--radius-sm, 5px); cursor: pointer; transition: all 0.2s;">Maybe later</button>
-          <button id="rate5StarsBtn" style="padding: 5px 10px; font-size: 11px; font-weight: 700; color: #ffffff; background-color: var(--blue, #448aff); border: none; border-radius: var(--radius-sm, 5px); cursor: pointer; transition: all 0.2s;">Rate 5-Stars ⭐</button>
-        </div>
       </div>
 
       <!-- Job Summary Card -->
@@ -172,7 +163,7 @@
           <span class="section-chevron">&#8963;</span>
         </div>
         <div class="section-body" id="resumeRewriteBody">
-          <p class="field-hint">This rewrites only your profile summary. Review it before using it; your saved profile is not changed.</p>
+          <p class="field-hint">AI-generated using your existing profile information. Review for accuracy before using. Your saved profile is not changed.</p>
           <div class="cover-letter-text" id="resumeRewriteText"></div>
           <div class="feature-error hidden" id="resumeRewriteError" role="alert"></div>
           <button class="copy-btn" id="copyResumeRewrite">Copy Summary</button>
@@ -251,7 +242,7 @@
                 <span class="provider-icon">&#129504;</span>
                 <div class="provider-info">
                   <span class="provider-name">Anthropic</span>
-                  <span class="provider-model">Claude 3.5 Sonnet</span>
+                  <span class="provider-model">Claude Sonnet 5</span>
                 </div>
               </div>
               <span class="provider-key-status" id="statusAnthropic"></span>

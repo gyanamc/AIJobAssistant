@@ -44,7 +44,6 @@ document.addEventListener('DOMContentLoaded', () => {
   setupProfile();
   setupTheme();
   listenForMessages();
-  setupReviewPrompt();
 
   // ── Navigation ─────────────────────────────────────────────────────────────
   function setupNav() {
@@ -493,6 +492,7 @@ document.addEventListener('DOMContentLoaded', () => {
           skillsScore:   currentJob.evaluation?.skillsScore  ?? null,
           reqsScore:     currentJob.evaluation?.reqsScore    ?? null,
           respScore:     currentJob.evaluation?.respScore    ?? null,
+          scoreCoverage: currentJob.evaluation?.scoreCoverage || null,
           matchedSkills: currentJob.evaluation?.matchedSkills || [],
           missingSkills: currentJob.evaluation?.missingSkills || [],
           reasoning:     currentJob.evaluation?.reasoning    || '',
@@ -576,6 +576,10 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('scorePct').textContent = Number.isFinite(score) ? `${score}%` : 'N/A';
     document.getElementById('scoreExplanation').textContent = jobResult.evaluation?.scoreExplanation
       || 'Compatibility score is based on available resume and job evidence.';
+    const coverage = normalizeCoverage(jobResult.evaluation?.scoreCoverage, jobResult.evaluation);
+    document.getElementById('scoreCoverage').textContent = coverage.status === 'unavailable'
+      ? 'Assessment coverage: unavailable'
+      : `Assessment coverage: ${coverage.assessedDimensions} of ${coverage.totalDimensions} dimensions${coverage.status === 'partial' ? ' (partial)' : ' (full)'}`;
     setBar('barSkills',  'valSkills',  jobResult.evaluation?.skillsScore);
     setBar('barReqs',    'valReqs',    jobResult.evaluation?.reqsScore);
     setBar('barResp',    'valResp',    jobResult.evaluation?.respScore);
@@ -700,6 +704,7 @@ document.addEventListener('DOMContentLoaded', () => {
           skillsScore:  jobResult.evaluation?.skillsScore  ?? null,
           reqsScore:    jobResult.evaluation?.reqsScore    ?? null,
           respScore:    jobResult.evaluation?.respScore    ?? null,
+          scoreCoverage: jobResult.evaluation?.scoreCoverage || null,
           matchedSkills: jobResult.evaluation?.matchedSkills || [],
           missingSkills: jobResult.evaluation?.missingSkills || [],
           reasoning:    jobResult.evaluation?.reasoning    || '',
@@ -754,6 +759,10 @@ document.addEventListener('DOMContentLoaded', () => {
         if (job.salary) meta.appendChild(element('span', 'sj-chip', job.salary));
         if (job.jobType) meta.appendChild(element('span', 'sj-chip', job.jobType));
         meta.appendChild(element('span', 'sj-chip', `Skills ${Number.isFinite(job.skillsScore) ? `${job.skillsScore}%` : 'N/A'}`));
+        const coverage = normalizeCoverage(job.scoreCoverage, job);
+        meta.appendChild(element('span', 'sj-chip', coverage.status === 'unavailable'
+          ? 'Coverage N/A'
+          : `Coverage ${coverage.assessedDimensions}/${coverage.totalDimensions}${coverage.status === 'partial' ? ' partial' : ''}`));
 
         const skills = element('div', 'sj-skills');
         (job.matchedSkills || []).slice(0, 8).forEach(skill => skills.appendChild(element('span', 'sj-skill matched', skill)));
@@ -837,6 +846,18 @@ document.addEventListener('DOMContentLoaded', () => {
     if (className) node.className = className;
     if (text !== undefined && text !== null) node.textContent = String(text);
     return node;
+  }
+
+  function normalizeCoverage(coverage, scores = {}) {
+    if (coverage && Number.isInteger(coverage.assessedDimensions) && Number.isInteger(coverage.totalDimensions)) {
+      return coverage;
+    }
+    const assessedDimensions = [scores.skillsScore, scores.reqsScore, scores.respScore].filter(Number.isFinite).length;
+    return {
+      assessedDimensions,
+      totalDimensions: 3,
+      status: assessedDimensions === 3 ? 'full' : assessedDimensions > 0 ? 'partial' : 'unavailable'
+    };
   }
 
   function exportCsv() {
@@ -942,7 +963,6 @@ document.addEventListener('DOMContentLoaded', () => {
         renderJobAnalysis(request.data);
         chrome.storage.local.set({ lastJob: request.data });
         switchView('analysis');
-        handleSuccessfulScan();
       }
 
       if (request.type === 'JOB_SAVED') {
@@ -966,51 +986,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function capitalize(str) {
     return str.charAt(0).toUpperCase() + str.slice(1);
-  }
-
-  // ── In-App Review Prompt Loop ─────────────────────────────────────────────
-  function setupReviewPrompt() {
-    const card = document.getElementById('reviewPromptCard');
-    const rateBtn = document.getElementById('rate5StarsBtn');
-    const maybeBtn = document.getElementById('maybeLaterBtn');
-
-    if (!card || !rateBtn || !maybeBtn) return;
-
-    chrome.storage.local.get(['successfulScans', 'hasReviewed'], (data) => {
-      if (data.hasReviewed) {
-        card.style.display = 'none';
-        return;
-      }
-      if (data.successfulScans === 3) {
-        card.style.display = 'block';
-      }
-    });
-
-    rateBtn.addEventListener('click', () => {
-      chrome.tabs.create({ url: 'https://chromewebstore.google.com/detail/ai-job-assistant/jfjimnkeogmhmgcigcecemijmhjgoppb/reviews' });
-      chrome.storage.local.set({ hasReviewed: true }, () => {
-        card.style.display = 'none';
-      });
-    });
-
-    maybeBtn.addEventListener('click', () => {
-      chrome.storage.local.set({ successfulScans: 0 }, () => {
-        card.style.display = 'none';
-      });
-    });
-  }
-
-  function handleSuccessfulScan() {
-    chrome.storage.local.get(['successfulScans', 'hasReviewed'], (data) => {
-      if (data.hasReviewed) return;
-      const scans = (data.successfulScans || 0) + 1;
-      chrome.storage.local.set({ successfulScans: scans }, () => {
-        if (scans === 3) {
-          const card = document.getElementById('reviewPromptCard');
-          if (card) card.style.display = 'block';
-        }
-      });
-    });
   }
 
 });

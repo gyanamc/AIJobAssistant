@@ -705,6 +705,13 @@ html, body {
   line-height: 1.45;
 }
 
+.score-coverage {
+  margin-top: 5px;
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 600;
+}
+
 /* Cover letter */
 .cover-letter-text {
   font-size: 12px;
