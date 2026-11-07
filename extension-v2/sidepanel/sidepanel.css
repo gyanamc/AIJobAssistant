@@ -698,6 +698,13 @@ html, body {
 .priority-tag.important { background: #ff980020; color: var(--orange); border: 1px solid #ff980040; }
 .priority-tag.excellent { background: #00c85320; color: var(--accent); border: 1px solid #00c85340; }
 
+.score-explanation {
+  margin-top: 8px;
+  color: var(--text-dim);
+  font-size: 10px;
+  line-height: 1.45;
+}
+
 /* Cover letter */
 .cover-letter-text {
   font-size: 12px;
@@ -833,6 +840,13 @@ html, body {
   color: var(--text-dim);
 }
 
+.feature-error {
+  margin-top: 10px;
+  color: var(--red);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
 .checkbox-row {
   flex-direction: row;
   align-items: flex-start;
@@ -840,6 +854,7 @@ html, body {
 }
 .checkbox-row input[type="checkbox"] { margin-top: 2px; accent-color: var(--accent); }
 .checkbox-label { font-size: 12px; color: var(--text-muted); line-height: 1.5; }
+.consent-detail { display: block; margin-top: 5px; color: var(--text-dim); font-size: 10px; }
 
 .save-btn {
   width: 100%;

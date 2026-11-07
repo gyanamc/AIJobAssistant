@@ -115,8 +115,10 @@ async function evaluateJob(jobData) {
 
   const evaluation = enrichEvaluation(rawResult.evaluation, jobData, storage);
 
-  // Normalise is_match — LLMs sometimes return string "true" or 1
-  evaluation.is_match = evaluation.is_match === true || evaluation.is_match === 'true' || evaluation.is_match === 1;
+  // Prefer the deterministic evidence score when it is available. Fall back to
+  // the model decision only when the extension cannot calculate a score.
+  const modelMatch = evaluation.is_match === true || evaluation.is_match === 'true' || evaluation.is_match === 1;
+  evaluation.is_match = Number.isFinite(evaluation.score) ? evaluation.score >= 60 : modelMatch;
 
   if (evaluation.is_match) {
     log(`Match confirmed — saving: ${jobData.title}`);
@@ -130,38 +132,120 @@ async function evaluateJob(jobData) {
 
 // ── Enrichment ────────────────────────────────────────────────────────────
 function enrichEvaluation(raw, jobData, storage) {
-  const userSkills = (storage.resumeSummary || '')
-    .split(/[\n,]+/).map(s => s.trim()).filter(s => s.length > 2 && s.length < 30);
-
-  const desc = (jobData.description || '').toLowerCase();
-  const matchedSkills = userSkills.filter(s => desc.includes(s.toLowerCase()));
-  const missingSkills = [];
-
-  const commonSkills = ['Python', 'LangChain', 'LangGraph', 'RAG', 'AWS', 'Docker',
+  const resumeText = String(storage.resumeSummary || '').trim();
+  const description = String(jobData.description || '').trim();
+  const resumeLower = resumeText.toLowerCase();
+  const descLower = description.toLowerCase();
+  const commonSkills = ['Python', 'Java', 'JavaScript', 'LangChain', 'LangGraph', 'RAG', 'AWS', 'Azure', 'GCP', 'Docker',
     'Kubernetes', 'SQL', 'Machine Learning', 'Deep Learning', 'TensorFlow', 'PyTorch',
     'n8n', 'Airflow', 'MLflow', 'FastAPI', 'React', 'Node.js', 'TypeScript'];
+  const skillsAssessment = normalizeAssessmentItems(raw.skills_assessment, []);
+  const jobSkills = skillsAssessment.length
+    ? skillsAssessment.map(item => item.text)
+    : commonSkills.filter(skill => descLower.includes(skill.toLowerCase()));
+  const skillHasEvidence = item => typeof item.matched === 'boolean'
+    ? item.matched
+    : resumeLower.includes(item.text.toLowerCase());
+  const matchedSkills = skillsAssessment.length
+    ? skillsAssessment.filter(skillHasEvidence).map(item => item.text)
+    : jobSkills.filter(skill => resumeLower.includes(skill.toLowerCase()));
+  const missingSkills = skillsAssessment.length
+    ? skillsAssessment.filter(item => !skillHasEvidence(item)).map(item => item.text)
+    : jobSkills.filter(skill => !resumeLower.includes(skill.toLowerCase()));
 
-  commonSkills.forEach(skill => {
-    if (desc.includes(skill.toLowerCase()) && !matchedSkills.includes(skill)) {
-      missingSkills.push(skill);
-    }
-  });
+  const requirements = normalizeAssessmentItems(
+    raw.requirements_assessment || raw.requirements,
+    extractBulletPoints(description, 'require').slice(0, 6)
+  );
+  const responsibilities = normalizeAssessmentItems(
+    raw.responsibilities_assessment || raw.responsibilities,
+    extractBulletPoints(description, 'responsib').slice(0, 6)
+  );
 
-  const skillsScore = matchedSkills.length && (matchedSkills.length + missingSkills.length)
-    ? Math.round((matchedSkills.length / (matchedSkills.length + missingSkills.length)) * 100)
-    : raw.is_match ? 80 : 40;
+  const skillsScore = skillsAssessment.length
+    ? scoreAssessmentItems(skillsAssessment, resumeText)
+    : resumeText && jobSkills.length
+      ? Math.round((matchedSkills.length / jobSkills.length) * 100)
+      : null;
+  const reqsScore = scoreAssessmentItems(requirements, resumeText);
+  const respScore = scoreAssessmentItems(responsibilities, resumeText);
+  const score = weightedAvailableScore([
+    { value: skillsScore, weight: 0.40 },
+    { value: reqsScore, weight: 0.35 },
+    { value: respScore, weight: 0.25 }
+  ]);
 
-  const reqsScore = raw.is_match ? Math.floor(Math.random() * 15) + 82 : Math.floor(Math.random() * 20) + 30;
-  const respScore = raw.is_match ? Math.floor(Math.random() * 15) + 80 : Math.floor(Math.random() * 20) + 35;
-  const score     = Math.round((skillsScore + reqsScore + respScore) / 3);
+  const availableDimensions = [skillsScore, reqsScore, respScore].filter(Number.isFinite).length;
+  const scoreExplanation = score === null
+    ? 'Compatibility score unavailable: add a resume summary and ensure the job description includes assessable skills, requirements, or responsibilities.'
+    : `Evidence-based compatibility from ${availableDimensions} available dimension${availableDimensions === 1 ? '' : 's'} (skills 40%, requirements 35%, responsibilities 25%; unavailable dimensions excluded).`;
 
   return {
     ...raw, score, skillsScore, reqsScore, respScore,
     matchedSkills:    matchedSkills.slice(0, 15),
     missingSkills:    missingSkills.slice(0, 5),
-    requirements:     extractBulletPoints(jobData.description, 'require').slice(0, 6),
-    responsibilities: extractBulletPoints(jobData.description, 'responsib').slice(0, 6)
+    requirements,
+    responsibilities,
+    scoreExplanation
   };
+}
+
+function normalizeAssessmentItems(items, fallback) {
+  const source = Array.isArray(items) && items.length ? items : fallback;
+  return (Array.isArray(source) ? source : []).map(item => {
+    if (typeof item === 'string') {
+      return { text: item, priority: guessPriority(item), matched: null };
+    }
+    const text = String(item?.text || item?.requirement || item?.responsibility || '').trim();
+    const matched = typeof item?.matched === 'boolean' ? item.matched : null;
+    return {
+      text,
+      priority: normalizePriority(item?.priority || guessPriority(text)),
+      matched
+    };
+  }).filter(item => item.text);
+}
+
+function normalizePriority(priority) {
+  return ['critical', 'important', 'excellent'].includes(priority) ? priority : 'important';
+}
+
+function scoreAssessmentItems(items, resumeText) {
+  if (!resumeText || !Array.isArray(items) || !items.length) return null;
+  const resumeTokens = meaningfulTokens(resumeText);
+  if (!resumeTokens.size) return null;
+
+  let earned = 0;
+  let possible = 0;
+  for (const item of items) {
+    const weight = item.priority === 'critical' ? 2 : item.priority === 'excellent' ? 0.5 : 1;
+    const evidence = typeof item.matched === 'boolean'
+      ? item.matched
+      : hasTextualEvidence(item.text, resumeTokens);
+    possible += weight;
+    if (evidence) earned += weight;
+  }
+  return possible ? Math.round((earned / possible) * 100) : null;
+}
+
+function meaningfulTokens(text) {
+  const stopWords = new Set(['and', 'the', 'with', 'for', 'from', 'that', 'this', 'will', 'your', 'you', 'are', 'our', 'have', 'has', 'job', 'role', 'work', 'using', 'years', 'year']);
+  return new Set(String(text || '').toLowerCase().match(/[a-z0-9+#.]{3,}/g)?.filter(token => !stopWords.has(token)) || []);
+}
+
+function hasTextualEvidence(text, resumeTokens) {
+  const itemTokens = [...meaningfulTokens(text)];
+  if (!itemTokens.length) return false;
+  const matches = itemTokens.filter(token => resumeTokens.has(token)).length;
+  const requiredMatches = itemTokens.length <= 3 ? 1 : Math.min(3, Math.ceil(itemTokens.length * 0.25));
+  return matches >= requiredMatches;
+}
+
+function weightedAvailableScore(parts) {
+  const available = parts.filter(part => Number.isFinite(part.value));
+  if (!available.length) return null;
+  const totalWeight = available.reduce((sum, part) => sum + part.weight, 0);
+  return Math.round(available.reduce((sum, part) => sum + part.value * part.weight, 0) / totalWeight);
 }
 
 function extractBulletPoints(description, keyword) {
@@ -178,9 +262,12 @@ function extractBulletPoints(description, keyword) {
     if (inSection && /^[A-Z][a-z]+ [A-Z]/.test(line) && results.length > 0) break;
   }
   if (!results.length) {
-    lines.slice(0, 8).forEach(line => {
+    const signals = keyword.startsWith('require')
+      ? ['required', 'requirement', 'must have', 'essential', 'preferred', 'nice to have']
+      : ['responsible', 'responsibility', 'duties', 'you will', "you'll"];
+    lines.filter(line => signals.some(signal => line.toLowerCase().includes(signal))).slice(0, 8).forEach(line => {
       const clean = line.replace(/^[-•*·]\s*/, '');
-      if (clean.length > 20) results.push({ text: clean, priority: guessPriority(clean) });
+      results.push({ text: clean, priority: guessPriority(clean), matched: null });
     });
   }
   return results;
@@ -319,23 +406,12 @@ async function evalWithGeminiAPI(jobData, storage) {
 async function evalWithAnthropic(jobData, storage) {
   if (!storage.apiKey) { log('ERROR: No Anthropic API key set.'); return { success: false, error: 'Missing API key' }; }
   try {
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'x-api-key': storage.apiKey,
-        'anthropic-version': '2023-06-01',
-        'anthropic-dangerous-direct-browser-access': 'true',
-        'content-type': 'application/json'
-      },
-      body: JSON.stringify({
-        model: 'claude-3-5-sonnet-20241022',
-        max_tokens: 600, temperature: 0.3,
-        system: buildSystemPrompt(),
-        messages: [{ role: 'user', content: buildUserPrompt(jobData, storage) + '\n\nReturn ONLY valid JSON.' }]
-      })
-    });
-    if (!res.ok) throw new Error(`Anthropic ${res.status}`);
-    const content = parseJSON((await res.json()).content[0].text);
+    const text = await requestAnthropicText(
+      storage.apiKey,
+      buildUserPrompt(jobData, storage) + '\n\nReturn ONLY valid JSON.',
+      { system: buildSystemPrompt(), maxTokens: 900, temperature: 0.3 }
+    );
+    const content = parseJSON(text);
     log(`Match: ${content.is_match} — ${content.reasoning?.substring(0, 60)}...`);
     return { success: true, evaluation: content };
   } catch (e) {
@@ -392,7 +468,10 @@ async function callLLM(storage, prompt) {
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${storage.apiKey}` },
       body: JSON.stringify({ model: 'gpt-4o-mini', messages: [{ role: 'user', content: prompt }], temperature: 0.5 })
     });
-    return (await res.json()).choices[0].message.content;
+    if (!res.ok) throw providerHttpError('OpenAI', res.status);
+    const data = await res.json();
+    if (typeof data?.choices?.[0]?.message?.content !== 'string') throw new Error('OpenAI returned an invalid response.');
+    return data.choices[0].message.content;
   }
   if (model === 'gemini_api' && storage.apiKey) {
     const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${storage.apiKey}`, {
@@ -400,9 +479,46 @@ async function callLLM(storage, prompt) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
     });
-    return (await res.json()).candidates[0].content.parts[0].text;
+    if (!res.ok) throw providerHttpError('Gemini', res.status);
+    const data = await res.json();
+    if (typeof data?.candidates?.[0]?.content?.parts?.[0]?.text !== 'string') throw new Error('Gemini returned an invalid response.');
+    return data.candidates[0].content.parts[0].text;
+  }
+  if (model === 'anthropic' && storage.apiKey) {
+    return requestAnthropicText(storage.apiKey, prompt, { maxTokens: 1000, temperature: 0.5 });
   }
   throw new Error('No suitable LLM configured.');
+}
+
+async function requestAnthropicText(apiKey, prompt, options = {}) {
+  if (!apiKey) throw new Error('Anthropic API key is missing.');
+  const res = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'x-api-key': apiKey,
+      'anthropic-version': '2023-06-01',
+      'anthropic-dangerous-direct-browser-access': 'true',
+      'content-type': 'application/json'
+    },
+    body: JSON.stringify({
+      model: 'claude-3-5-sonnet-20241022',
+      max_tokens: options.maxTokens || 800,
+      temperature: options.temperature ?? 0.5,
+      ...(options.system ? { system: options.system } : {}),
+      messages: [{ role: 'user', content: prompt }]
+    })
+  });
+  if (!res.ok) throw providerHttpError('Anthropic', res.status);
+  const data = await res.json();
+  const text = data?.content?.find(block => block?.type === 'text')?.text;
+  if (typeof text !== 'string' || !text.trim()) throw new Error('Anthropic returned an invalid response.');
+  return text;
+}
+
+function providerHttpError(provider, status) {
+  if (status === 401 || status === 403) return new Error(`${provider} authentication failed. Check the configured API key.`);
+  if (status === 429) return new Error(`${provider} rate limit reached. Try again later.`);
+  return new Error(`${provider} request failed (HTTP ${status}).`);
 }
 
 // ── Auto-save matches locally ─────────────────────────────────────────────
@@ -440,10 +556,10 @@ function _doSave(jobData, evaluation) {
         url:           jobData.url          || '',
         applyUrl:      jobData.applyUrl     || jobData.url || '',
         contactEmail:  jobData.contactEmail || '',
-        score:         evaluation.score        || 0,
-        skillsScore:   evaluation.skillsScore  || 0,
-        reqsScore:     evaluation.reqsScore    || 0,
-        respScore:     evaluation.respScore    || 0,
+        score:         evaluation.score        ?? null,
+        skillsScore:   evaluation.skillsScore  ?? null,
+        reqsScore:     evaluation.reqsScore    ?? null,
+        respScore:     evaluation.respScore    ?? null,
         matchedSkills: evaluation.matchedSkills  || [],
         missingSkills: evaluation.missingSkills  || [],
         reasoning:     evaluation.reasoning      || '',
@@ -467,7 +583,11 @@ function buildSystemPrompt() {
 Respond with EXACTLY valid JSON with these keys:
 - "is_match": boolean
 - "reasoning": string (2-3 sentences explaining the match decision)
-- "cover_letter": string (short 2-paragraph cover letter if is_match is true, else empty string)`;
+- "cover_letter": string (short 2-paragraph cover letter if is_match is true, else empty string)
+- "skills_assessment": array of objects with "text", "priority" (critical, important, or excellent), and "matched" boolean
+- "requirements_assessment": array of objects with "text", "priority" (critical, important, or excellent), and "matched" boolean
+- "responsibilities_assessment": array of objects with "text", "priority" (critical, important, or excellent), and "matched" boolean
+Only mark an item matched when the resume contains explicit supporting evidence. The compatibility score is calculated separately by the extension.`;
 }
 
 function buildUserPrompt(jobData, storage) {

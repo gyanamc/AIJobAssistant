@@ -5,6 +5,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // ── State ──────────────────────────────────────────────────────────────────
   let currentView = 'analysis';
   let currentJob  = null;
+  const { hasExplicitSharingConsent, consentStorageUpdate, safeExternalUrl } = ExtensionPolicies;
 
   // Theme cycle: dark → light → system → dark
   const THEMES = ['dark', 'light', 'system'];
@@ -43,6 +44,7 @@ document.addEventListener('DOMContentLoaded', () => {
   setupProfile();
   setupTheme();
   listenForMessages();
+  setupReviewPrompt();
 
   // ── Navigation ─────────────────────────────────────────────────────────────
   function setupNav() {
@@ -148,7 +150,7 @@ document.addEventListener('DOMContentLoaded', () => {
       'botRunning', 'aiMode', 'aiModel', 'byokProvider',
       'openaiKey', 'geminiKey', 'anthropicKey',
       'targetRoles', 'targetLocations', 'resumeSummary',
-      'shareAnonymized', 'lastJob', 'theme', 'accentColor'
+      'shareAnonymized', 'shareConsentVersion', 'lastJob', 'theme', 'accentColor'
     ], (data) => {
       // Bot state
       botToggle.checked = !!data.botRunning;
@@ -172,7 +174,8 @@ document.addEventListener('DOMContentLoaded', () => {
       if (data.targetRoles)     document.getElementById('targetRoles').value     = data.targetRoles;
       if (data.targetLocations) document.getElementById('targetLocations').value = data.targetLocations;
       if (data.resumeSummary)   document.getElementById('resumeSummary').value   = data.resumeSummary;
-      document.getElementById('shareAnonymized').checked = data.shareAnonymized !== false;
+      // Historical `true` values predate explicit consent tracking and must be reconfirmed.
+      document.getElementById('shareAnonymized').checked = hasExplicitSharingConsent(data);
 
       // Theme
       applyTheme(data.theme || 'dark');
@@ -348,7 +351,14 @@ document.addEventListener('DOMContentLoaded', () => {
       const resumeSummary   = document.getElementById('resumeSummary').value;
       const shareAnonymized = document.getElementById('shareAnonymized').checked;
 
-      chrome.storage.local.set({ targetRoles, targetLocations, resumeSummary, shareAnonymized }, async () => {
+      const profileUpdate = {
+        targetRoles,
+        targetLocations,
+        resumeSummary,
+        ...consentStorageUpdate(shareAnonymized)
+      };
+
+      chrome.storage.local.set(profileUpdate, async () => {
         showConfirm('profileSaved');
 
         // Sync to recruiter platform if consent given
@@ -406,15 +416,28 @@ document.addEventListener('DOMContentLoaded', () => {
 
     document.getElementById('rewriteResumeBtn').addEventListener('click', () => {
       if (!currentJob) return;
-      showLoading('Rewriting resume for this role...');
+      const section = document.getElementById('resumeRewriteSection');
+      const output = document.getElementById('resumeRewriteText');
+      const error = document.getElementById('resumeRewriteError');
+      error.textContent = '';
+      error.classList.add('hidden');
+      showLoading('Tailoring resume summary for this role...');
       chrome.runtime.sendMessage({ type: 'REWRITE_RESUME', data: currentJob }, (res) => {
-        if (chrome.runtime.lastError) { hideLoading(); return; }
         hideLoading();
-        if (res && res.rewritten) {
-          addLog('Resume rewrite ready. Check cover letter section.', 'success');
-          document.getElementById('coverLetterText').textContent = res.rewritten;
-          document.getElementById('coverLetterSection').classList.remove('hidden');
+        section.classList.remove('hidden');
+        if (chrome.runtime.lastError) {
+          output.textContent = '';
+          error.textContent = 'The resume summary could not be generated. Please try again.';
+          error.classList.remove('hidden');
+        } else if (res?.success && res.rewritten) {
+          output.textContent = res.rewritten;
+          addLog('Tailored resume summary ready for review.', 'success');
+        } else {
+          output.textContent = '';
+          error.textContent = res?.error || 'The resume summary could not be generated.';
+          error.classList.remove('hidden');
         }
+        section.scrollIntoView({ behavior: 'smooth' });
       });
     });
 
@@ -423,6 +446,16 @@ document.addEventListener('DOMContentLoaded', () => {
       navigator.clipboard.writeText(text).then(() => {
         document.getElementById('copyCoverLetter').textContent = 'Copied!';
         setTimeout(() => { document.getElementById('copyCoverLetter').textContent = 'Copy'; }, 2000);
+      });
+    });
+
+    document.getElementById('copyResumeRewrite').addEventListener('click', () => {
+      const text = document.getElementById('resumeRewriteText').textContent;
+      if (!text) return;
+      navigator.clipboard.writeText(text).then(() => {
+        const button = document.getElementById('copyResumeRewrite');
+        button.textContent = 'Copied!';
+        setTimeout(() => { button.textContent = 'Copy Summary'; }, 2000);
       });
     });
 
@@ -456,10 +489,10 @@ document.addEventListener('DOMContentLoaded', () => {
           url:           currentJob.url          || '',
           applyUrl:      applyUrl,
           contactEmail:  currentJob.contactEmail || '',
-          score:         currentJob.evaluation?.score        || 0,
-          skillsScore:   currentJob.evaluation?.skillsScore  || 0,
-          reqsScore:     currentJob.evaluation?.reqsScore    || 0,
-          respScore:     currentJob.evaluation?.respScore    || 0,
+          score:         currentJob.evaluation?.score        ?? null,
+          skillsScore:   currentJob.evaluation?.skillsScore  ?? null,
+          reqsScore:     currentJob.evaluation?.reqsScore    ?? null,
+          respScore:     currentJob.evaluation?.respScore    ?? null,
           matchedSkills: currentJob.evaluation?.matchedSkills || [],
           missingSkills: currentJob.evaluation?.missingSkills || [],
           reasoning:     currentJob.evaluation?.reasoning    || '',
@@ -482,7 +515,8 @@ document.addEventListener('DOMContentLoaded', () => {
           setTimeout(() => confirm.classList.add('hidden'), 2500);
           // Open the job application page
           if (applyUrl && applyUrl !== '#') {
-            chrome.tabs.create({ url: applyUrl });
+            const safeUrl = safeExternalUrl(applyUrl);
+            if (safeUrl) chrome.tabs.create({ url: safeUrl });
           }
         });
       });
@@ -490,7 +524,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     document.getElementById('clearLogsBtn').addEventListener('click', () => {
       chrome.storage.local.set({ sessionLogs: [] }, () => {
-        document.getElementById('logList').innerHTML = '';
+        document.getElementById('logList').replaceChildren();
       });
     });
 
@@ -522,8 +556,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Apply link & contact email
     const applyLink = document.getElementById('jobApplyLink');
-    applyLink.href = jobResult.applyUrl || jobResult.url || '#';
-    applyLink.style.display = (jobResult.applyUrl || jobResult.url) ? '' : 'none';
+    const safeApplyUrl = safeExternalUrl(jobResult.applyUrl || jobResult.url);
+    applyLink.removeAttribute('href');
+    applyLink.rel = 'noopener noreferrer';
+    if (safeApplyUrl) applyLink.href = safeApplyUrl;
+    applyLink.style.display = safeApplyUrl ? '' : 'none';
 
     const emailEl = document.getElementById('jobContactEmail');
     if (jobResult.contactEmail) {
@@ -535,11 +572,13 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // Score
-    const score = jobResult.evaluation?.score || 0;
-    document.getElementById('scorePct').textContent = score ? `${score}%` : '--';
-    setBar('barSkills',  'valSkills',  jobResult.evaluation?.skillsScore  || 0);
-    setBar('barReqs',    'valReqs',    jobResult.evaluation?.reqsScore    || 0);
-    setBar('barResp',    'valResp',    jobResult.evaluation?.respScore    || 0);
+    const score = jobResult.evaluation?.score;
+    document.getElementById('scorePct').textContent = Number.isFinite(score) ? `${score}%` : 'N/A';
+    document.getElementById('scoreExplanation').textContent = jobResult.evaluation?.scoreExplanation
+      || 'Compatibility score is based on available resume and job evidence.';
+    setBar('barSkills',  'valSkills',  jobResult.evaluation?.skillsScore);
+    setBar('barReqs',    'valReqs',    jobResult.evaluation?.reqsScore);
+    setBar('barResp',    'valResp',    jobResult.evaluation?.respScore);
 
     // Skills
     renderSkills(jobResult.evaluation?.matchedSkills || [], jobResult.evaluation?.missingSkills || []);
@@ -560,54 +599,81 @@ document.addEventListener('DOMContentLoaded', () => {
     } else {
       document.getElementById('coverLetterSection').classList.add('hidden');
     }
+    document.getElementById('resumeRewriteSection').classList.add('hidden');
+    document.getElementById('resumeRewriteText').textContent = '';
+    document.getElementById('resumeRewriteError').textContent = '';
   }
 
   function setBar(barId, valId, pct) {
+    if (!Number.isFinite(pct)) {
+      document.getElementById(barId).style.width = '0%';
+      document.getElementById(valId).textContent = 'N/A';
+      return;
+    }
     const clamped = Math.min(100, Math.max(0, pct));
     document.getElementById(barId).style.width = `${clamped}%`;
-    document.getElementById(valId).textContent = clamped ? `${clamped}%` : '--';
+    document.getElementById(valId).textContent = `${clamped}%`;
   }
 
   function renderSkills(matched, missing) {
     const container = document.getElementById('skillsChips');
-    container.innerHTML = '';
+    container.replaceChildren();
     const total = matched.length + missing.length;
     document.getElementById('skillsCount').textContent = total ? `${matched.length}/${total}` : '';
 
     matched.forEach(skill => {
       const chip = document.createElement('span');
       chip.className = 'skill-chip matched';
-      chip.innerHTML = `<span class="skill-dot"></span>${skill}`;
+      const dot = document.createElement('span');
+      dot.className = 'skill-dot';
+      chip.append(dot, document.createTextNode(String(skill)));
       container.appendChild(chip);
     });
 
     missing.forEach(skill => {
       const chip = document.createElement('span');
       chip.className = 'skill-chip missing';
-      chip.innerHTML = `<span class="skill-dot"></span>${skill}`;
+      const dot = document.createElement('span');
+      dot.className = 'skill-dot';
+      chip.append(dot, document.createTextNode(String(skill)));
       container.appendChild(chip);
     });
   }
 
   function renderList(listId, items) {
     const ul = document.getElementById(listId);
-    ul.innerHTML = '';
+    ul.replaceChildren();
     if (!items.length) {
-      ul.innerHTML = '<li class="req-item"><span class="req-text" style="color:var(--text-dim)">No data available.</span></li>';
+      const li = document.createElement('li');
+      li.className = 'req-item';
+      const text = document.createElement('span');
+      text.className = 'req-text';
+      text.style.color = 'var(--text-dim)';
+      text.textContent = 'No data available.';
+      li.appendChild(text);
+      ul.appendChild(li);
       return;
     }
     items.forEach(item => {
       const li = document.createElement('li');
       li.className = 'req-item';
-      const priority = item.priority || 'important';
-      li.innerHTML = `
-        <span class="req-check">&#9989;</span>
-        <div class="req-content">
-          <p class="req-text">${item.text || item}</p>
-          <div class="req-tags">
-            <span class="priority-tag ${priority}">${capitalize(priority)}</span>
-          </div>
-        </div>`;
+      const priority = ['critical', 'important', 'excellent'].includes(item?.priority) ? item.priority : 'important';
+      const check = document.createElement('span');
+      check.className = 'req-check';
+      check.textContent = item?.matched === true ? '✅' : item?.matched === false ? '○' : '•';
+      const content = document.createElement('div');
+      content.className = 'req-content';
+      const text = document.createElement('p');
+      text.className = 'req-text';
+      text.textContent = String(item?.text || item || '');
+      const tags = document.createElement('div');
+      tags.className = 'req-tags';
+      const priorityTag = document.createElement('span');
+      priorityTag.className = `priority-tag ${priority}`;
+      priorityTag.textContent = capitalize(priority);
+      tags.appendChild(priorityTag);
+      content.append(text, tags);
+      li.append(check, content);
       ul.appendChild(li);
     });
   }
@@ -630,10 +696,10 @@ document.addEventListener('DOMContentLoaded', () => {
           url:          jobResult.url          || '',
           applyUrl:     jobResult.applyUrl     || jobResult.url || '',
           contactEmail: jobResult.contactEmail || '',
-          score:        jobResult.evaluation?.score        || 0,
-          skillsScore:  jobResult.evaluation?.skillsScore  || 0,
-          reqsScore:    jobResult.evaluation?.reqsScore    || 0,
-          respScore:    jobResult.evaluation?.respScore    || 0,
+          score:        jobResult.evaluation?.score        ?? null,
+          skillsScore:  jobResult.evaluation?.skillsScore  ?? null,
+          reqsScore:    jobResult.evaluation?.reqsScore    ?? null,
+          respScore:    jobResult.evaluation?.respScore    ?? null,
           matchedSkills: jobResult.evaluation?.matchedSkills || [],
           missingSkills: jobResult.evaluation?.missingSkills || [],
           reasoning:    jobResult.evaluation?.reasoning    || '',
@@ -661,55 +727,75 @@ document.addEventListener('DOMContentLoaded', () => {
       if (countEl) countEl.textContent = saved.length ? `(${saved.length})` : '';
 
       if (!saved.length) {
-        container.innerHTML = '<p class="empty-state">No saved jobs yet. Matches are saved here automatically.</p>';
+        const empty = document.createElement('p');
+        empty.className = 'empty-state';
+        empty.textContent = 'No saved jobs yet. Matches are saved here automatically.';
+        container.replaceChildren(empty);
         return;
       }
 
-      container.innerHTML = '';
+      container.replaceChildren();
       saved.forEach((job, idx) => {
         const card = document.createElement('div');
         card.className = 'saved-job-card';
 
-        const skillsHtml = (job.matchedSkills || []).slice(0, 8).map(s =>
-          `<span class="sj-skill matched">${s}</span>`
-        ).join('') + (job.missingSkills || []).slice(0, 3).map(s =>
-          `<span class="sj-skill missing">${s}</span>`
-        ).join('');
+        const header = element('div', 'sj-header');
+        const titleWrap = element('div', 'sj-title-wrap');
+        titleWrap.append(
+          element('div', 'sj-title', job.title),
+          element('div', 'sj-company', `${job.company || ''}${job.location ? ` · ${job.location}` : ''}`)
+        );
+        const score = Number.isFinite(job.score) ? job.score : null;
+        const scoreEl = element('div', 'sj-score', score === null ? 'N/A' : `${score}%`);
+        scoreEl.style.color = score === null ? 'var(--text-dim)' : score >= 80 ? 'var(--accent)' : score >= 60 ? 'var(--orange)' : 'var(--red)';
+        header.append(titleWrap, scoreEl);
 
-        const emailHtml = job.contactEmail
-          ? `<span class="sj-email">✉ ${job.contactEmail}</span>` : '';
+        const meta = element('div', 'sj-meta');
+        if (job.salary) meta.appendChild(element('span', 'sj-chip', job.salary));
+        if (job.jobType) meta.appendChild(element('span', 'sj-chip', job.jobType));
+        meta.appendChild(element('span', 'sj-chip', `Skills ${Number.isFinite(job.skillsScore) ? `${job.skillsScore}%` : 'N/A'}`));
 
-        const scoreColor = job.score >= 80 ? 'var(--accent)' : job.score >= 60 ? 'var(--orange)' : 'var(--red)';
+        const skills = element('div', 'sj-skills');
+        (job.matchedSkills || []).slice(0, 8).forEach(skill => skills.appendChild(element('span', 'sj-skill matched', skill)));
+        (job.missingSkills || []).slice(0, 3).forEach(skill => skills.appendChild(element('span', 'sj-skill missing', skill)));
 
-        card.innerHTML = `
-          <div class="sj-header">
-            <div class="sj-title-wrap">
-              <div class="sj-title">${job.title}</div>
-              <div class="sj-company">${job.company}${job.location ? ' · ' + job.location : ''}</div>
-            </div>
-            <div class="sj-score" style="color:${scoreColor}">${job.score ? job.score + '%' : ''}</div>
-          </div>
+        const actions = element('div', 'sj-actions');
+        const applyUrl = safeExternalUrl(job.applyUrl || job.url);
+        if (applyUrl) {
+          const apply = element('a', 'sj-apply-btn', 'Apply ↗');
+          apply.href = applyUrl;
+          apply.target = '_blank';
+          apply.rel = 'noopener noreferrer';
+          actions.appendChild(apply);
+        }
+        if (job.contactEmail) actions.appendChild(element('span', 'sj-email', `✉ ${job.contactEmail}`));
+        const expand = element('button', 'sj-expand-btn', 'Details ▾');
+        expand.dataset.idx = String(idx);
+        const remove = element('button', 'sj-delete-btn', '✕');
+        remove.dataset.idx = String(idx);
+        remove.title = 'Remove';
+        actions.append(expand, remove);
 
-          <div class="sj-meta">
-            ${job.salary ? `<span class="sj-chip">${job.salary}</span>` : ''}
-            ${job.jobType ? `<span class="sj-chip">${job.jobType}</span>` : ''}
-            <span class="sj-chip">Skills ${job.skillsScore || 0}%</span>
-          </div>
+        const details = element('div', 'sj-details hidden');
+        details.id = `sj-details-${idx}`;
+        if (job.reasoning) {
+          details.append(element('div', 'sj-section-label', 'AI Reasoning'));
+          details.append(element('p', 'sj-reasoning', job.reasoning));
+        }
+        if (job.coverLetter) {
+          const label = element('div', 'sj-section-label', 'Cover Letter ');
+          const copy = element('button', 'sj-copy-btn', 'Copy');
+          copy.dataset.idx = String(idx);
+          label.appendChild(copy);
+          details.append(label, element('p', 'sj-cover', job.coverLetter));
+        }
+        const savedDate = job.savedAt ? new Date(job.savedAt) : null;
+        const dateText = savedDate && !Number.isNaN(savedDate.getTime()) ? savedDate.toLocaleDateString('en-IN') : 'Unknown date';
+        details.appendChild(element('div', 'sj-section-label', `Saved ${dateText}`));
 
-          ${skillsHtml ? `<div class="sj-skills">${skillsHtml}</div>` : ''}
-
-          <div class="sj-actions">
-            <a class="sj-apply-btn" href="${job.applyUrl || job.url}" target="_blank">Apply ↗</a>
-            ${emailHtml}
-            <button class="sj-expand-btn" data-idx="${idx}">Details ▾</button>
-            <button class="sj-delete-btn" data-idx="${idx}" title="Remove">✕</button>
-          </div>
-
-          <div class="sj-details hidden" id="sj-details-${idx}">
-            ${job.reasoning ? `<div class="sj-section-label">AI Reasoning</div><p class="sj-reasoning">${job.reasoning}</p>` : ''}
-            ${job.coverLetter ? `<div class="sj-section-label">Cover Letter <button class="sj-copy-btn" data-text="${encodeURIComponent(job.coverLetter)}">Copy</button></div><p class="sj-cover">${job.coverLetter}</p>` : ''}
-            <div class="sj-section-label">Saved ${new Date(job.savedAt).toLocaleDateString('en-IN')}</div>
-          </div>`;
+        card.append(header, meta);
+        if (skills.childElementCount) card.appendChild(skills);
+        card.append(actions, details);
 
         container.appendChild(card);
       });
@@ -736,13 +822,21 @@ document.addEventListener('DOMContentLoaded', () => {
 
       container.querySelectorAll('.sj-copy-btn').forEach(btn => {
         btn.addEventListener('click', () => {
-          navigator.clipboard.writeText(decodeURIComponent(btn.dataset.text)).then(() => {
+          const job = saved[Number(btn.dataset.idx)];
+          navigator.clipboard.writeText(String(job?.coverLetter || '')).then(() => {
             btn.textContent = 'Copied!';
             setTimeout(() => { btn.textContent = 'Copy'; }, 2000);
           });
         });
       });
     });
+  }
+
+  function element(tagName, className, text) {
+    const node = document.createElement(tagName);
+    if (className) node.className = className;
+    if (text !== undefined && text !== null) node.textContent = String(text);
+    return node;
   }
 
   function exportCsv() {
@@ -818,7 +912,7 @@ document.addEventListener('DOMContentLoaded', () => {
   function renderLogs() {
     chrome.storage.local.get(['sessionLogs'], (data) => {
       const ul = document.getElementById('logList');
-      ul.innerHTML = '';
+      ul.replaceChildren();
       (data.sessionLogs || []).forEach(log => appendLogItem(log));
     });
   }
@@ -848,6 +942,7 @@ document.addEventListener('DOMContentLoaded', () => {
         renderJobAnalysis(request.data);
         chrome.storage.local.set({ lastJob: request.data });
         switchView('analysis');
+        handleSuccessfulScan();
       }
 
       if (request.type === 'JOB_SAVED') {
@@ -871,6 +966,51 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function capitalize(str) {
     return str.charAt(0).toUpperCase() + str.slice(1);
+  }
+
+  // ── In-App Review Prompt Loop ─────────────────────────────────────────────
+  function setupReviewPrompt() {
+    const card = document.getElementById('reviewPromptCard');
+    const rateBtn = document.getElementById('rate5StarsBtn');
+    const maybeBtn = document.getElementById('maybeLaterBtn');
+
+    if (!card || !rateBtn || !maybeBtn) return;
+
+    chrome.storage.local.get(['successfulScans', 'hasReviewed'], (data) => {
+      if (data.hasReviewed) {
+        card.style.display = 'none';
+        return;
+      }
+      if (data.successfulScans === 3) {
+        card.style.display = 'block';
+      }
+    });
+
+    rateBtn.addEventListener('click', () => {
+      chrome.tabs.create({ url: 'https://chromewebstore.google.com/detail/ai-job-assistant/jfjimnkeogmhmgcigcecemijmhjgoppb/reviews' });
+      chrome.storage.local.set({ hasReviewed: true }, () => {
+        card.style.display = 'none';
+      });
+    });
+
+    maybeBtn.addEventListener('click', () => {
+      chrome.storage.local.set({ successfulScans: 0 }, () => {
+        card.style.display = 'none';
+      });
+    });
+  }
+
+  function handleSuccessfulScan() {
+    chrome.storage.local.get(['successfulScans', 'hasReviewed'], (data) => {
+      if (data.hasReviewed) return;
+      const scans = (data.successfulScans || 0) + 1;
+      chrome.storage.local.set({ successfulScans: scans }, () => {
+        if (scans === 3) {
+          const card = document.getElementById('reviewPromptCard');
+          if (card) card.style.display = 'block';
+        }
+      });
+    });
   }
 
 });
