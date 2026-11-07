@@ -1,0 +1,9 @@
+# Python dependencies for extension-v2 browser and smoke tests
+# Install with: pip install -r extension-v2/tests/requirements.txt
+# Then run:     playwright install chromium
+
+# Required for mocked DOM browser integration tests (browser_integration.py)
+playwright>=1.40.0
+
+# Required for real MV3 extension smoke test (mv3_smoke.py)
+websockets>=11.0

@@ -577,9 +577,10 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('scoreExplanation').textContent = jobResult.evaluation?.scoreExplanation
       || 'Compatibility score is based on available resume and job evidence.';
     const coverage = normalizeCoverage(jobResult.evaluation?.scoreCoverage, jobResult.evaluation);
-    document.getElementById('scoreCoverage').textContent = coverage.status === 'unavailable'
-      ? 'Assessment coverage: unavailable'
-      : `Assessment coverage: ${coverage.assessedDimensions} of ${coverage.totalDimensions} dimensions${coverage.status === 'partial' ? ' (partial)' : ' (full)'}`;
+    document.getElementById('scoreCoverage').textContent =
+      coverage.status === 'legacy'      ? 'Assessment coverage: Legacy — coverage unknown' :
+      coverage.status === 'unavailable' ? 'Assessment coverage: unavailable' :
+      `Assessment coverage: ${coverage.assessedDimensions} of ${coverage.totalDimensions} dimensions${coverage.status === 'partial' ? ' (partial)' : ' (full)'}`;
     setBar('barSkills',  'valSkills',  jobResult.evaluation?.skillsScore);
     setBar('barReqs',    'valReqs',    jobResult.evaluation?.reqsScore);
     setBar('barResp',    'valResp',    jobResult.evaluation?.respScore);
@@ -760,9 +761,10 @@ document.addEventListener('DOMContentLoaded', () => {
         if (job.jobType) meta.appendChild(element('span', 'sj-chip', job.jobType));
         meta.appendChild(element('span', 'sj-chip', `Skills ${Number.isFinite(job.skillsScore) ? `${job.skillsScore}%` : 'N/A'}`));
         const coverage = normalizeCoverage(job.scoreCoverage, job);
-        meta.appendChild(element('span', 'sj-chip', coverage.status === 'unavailable'
-          ? 'Coverage N/A'
-          : `Coverage ${coverage.assessedDimensions}/${coverage.totalDimensions}${coverage.status === 'partial' ? ' partial' : ''}`));
+        meta.appendChild(element('span', 'sj-chip',
+          coverage.status === 'legacy'      ? 'Coverage: Legacy' :
+          coverage.status === 'unavailable' ? 'Coverage N/A' :
+          `Coverage ${coverage.assessedDimensions}/${coverage.totalDimensions}${coverage.status === 'partial' ? ' partial' : ''}`));
 
         const skills = element('div', 'sj-skills');
         (job.matchedSkills || []).slice(0, 8).forEach(skill => skills.appendChild(element('span', 'sj-skill matched', skill)));
@@ -849,14 +851,20 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function normalizeCoverage(coverage, scores = {}) {
+    // Only trust coverage objects that carry verified dimension metadata
+    // produced by the deterministic scoring implementation (v2.0.8+).
     if (coverage && Number.isInteger(coverage.assessedDimensions) && Number.isInteger(coverage.totalDimensions)) {
       return coverage;
     }
-    const assessedDimensions = [scores.skillsScore, scores.reqsScore, scores.respScore].filter(Number.isFinite).length;
+    // Legacy record — no verified coverage metadata present.
+    // Raw numeric scores (skillsScore / reqsScore / respScore) may have been
+    // produced by an earlier non-deterministic implementation and must NOT be
+    // used to infer coverage. Label these records as legacy so users are never
+    // misled about the reliability of their historical scores.
     return {
-      assessedDimensions,
+      assessedDimensions: 0,
       totalDimensions: 3,
-      status: assessedDimensions === 3 ? 'full' : assessedDimensions > 0 ? 'partial' : 'unavailable'
+      status: 'legacy'
     };
   }
 

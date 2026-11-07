@@ -1,4 +1,4 @@
-# AI Job Assistant Extension (v2.0.8)
+# AI Job Assistant Extension (v2.0.9)
 
 ## 1. Selected Anthropic Model and API Compatibility
 - **Model Identifier**: `claude-sonnet-5` (centralized in `background/background.js` as `const ANTHROPIC_MODEL`).
@@ -73,3 +73,34 @@
 ## 7. Outstanding Limitations
 - **Client-Side Direct BYOK**: In BYOK mode, requests originate directly from the extension to provider APIs (OpenAI, Anthropic, Gemini). While keys are stored only in `chrome.storage.local` and never transmitted to our servers, users must safeguard their local browser environments.
 - **Candidate Profile Server Deletion**: Disabling sharing halts future syncs; backend profile deletion requires verified candidate ownership, which is not yet present on the unauthenticated sync endpoint.
+
+## 8. v2.0.9 — Final Hardening Pass (November 7, 2026)
+
+### 8a. Historical Score Coverage Compatibility Fix
+- **Bug fixed**: `normalizeCoverage()` previously inferred a `partial` or `full` coverage status from raw numeric `skillsScore`/`reqsScore`/`respScore` fields on legacy saved-job records that pre-date the `scoreCoverage` metadata object (introduced in v2.0.8). Some of those scores were produced by the earlier `Math.random()`-based implementation, so inferring coverage from them was incorrect.
+- **Fix**: When no valid `scoreCoverage` object is present, `normalizeCoverage()` now returns `{ status: 'legacy', assessedDimensions: 0, totalDimensions: 3 }`. The UI renders "Legacy — coverage unknown" (analysis view) or "Coverage: Legacy" (saved-job chip). No historical records are modified or deleted.
+
+### 8b. Privacy Disclosure Accuracy
+- **Corrected `privacy-policy.html`**: Previous wording stated job data was "not sent to any server unless you enable profile sharing" — this was inaccurate. AI evaluation (job scoring, cover letter, resume rewriting) always sends the job title, description, and resume summary to an AI provider. The updated policy accurately documents all four provider paths (free tier via backend proxy to Groq/Ollama; OpenAI BYOK; Gemini BYOK; Anthropic BYOK), what is NOT transmitted (API keys, saved job history), and explicitly notes that backend/provider data retention cannot be verified from the extension code alone.
+- **Corrected `CHROMEWEBSTORE.md`**: Removed the blanket "does not collect or transmit user data off-device" statement, which contradicted the AI evaluation data flow. Replaced with an accurate breakdown by provider path.
+
+### 8c. Real MV3 Extension Smoke Test
+- **Added `tests/mv3_smoke.py`**: Loads `extension-v2/` as a real unpacked Chrome extension via Playwright persistent context with `--load-extension` / `--headless=new`. Verifies: service worker registration, side-panel page loads at `chrome-extension://` URL, no uncaught JS exceptions, `chrome.runtime` and `chrome.storage` APIs accessible, `chrome.runtime.id` correct, no critical console errors. AI endpoint calls are intercepted and aborted (no real API calls during testing). Skips gracefully (exit 0, clear SKIP message) if Chrome or Playwright is unavailable.
+- **Added `tests/mv3-smoke.test.js`**: Node.js runner that invokes `mv3_smoke.py` and surfaces skip/pass/fail to the Node test reporter.
+
+### 8d. Test Prerequisites Documentation
+- **Added `tests/TESTING.md`**: Complete guide with prerequisite versions, install commands, and exact test-run commands for all three test layers (unit, mocked DOM, real MV3 smoke).
+- **Added `tests/requirements.txt`**: Python dependency file (`playwright>=1.40.0`) for reproducible installs.
+
+### 8e. Regression Review — No Issues Found
+- No `Math.random()` present in scoring logic.
+- No unsafe `innerHTML` injection.
+- `shareAnonymized` defaults to `false`.
+- Resume rewriting validates non-empty resume before LLM call; factuality constraints enforced in prompt.
+- Anthropic uses `claude-sonnet-5` / `anthropic-version: 2026-10-21`.
+- All LLM provider errors handled via `providerHttpError`.
+- Missing score dimensions remain `null`, not fabricated.
+- LinkedIn, Naukri, saved jobs, and CSV export unchanged.
+- No unnecessary permissions added; no secrets committed.
+
+

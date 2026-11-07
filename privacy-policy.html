@@ -11,32 +11,52 @@
     p, li { color: #444; }
     a { color: #2563eb; }
     .updated { color: #888; font-size: 14px; }
+    .note { background: #f0f4ff; border-left: 4px solid #2563eb; padding: 10px 16px; margin: 16px 0; border-radius: 4px; }
   </style>
 </head>
 <body>
 
   <h1>Privacy Policy</h1>
-  <p class="updated">Last updated: April 7, 2026</p>
+  <p class="updated">Last updated: November 7, 2026</p>
 
-  <p>AI Job Assistant ("the Extension") is a Chrome browser extension that helps job seekers automatically evaluate job listings on LinkedIn and Naukri using AI. This Privacy Policy explains what data we collect, how we use it, and your choices.</p>
+  <p>AI Job Assistant ("the Extension") is a Chrome browser extension that helps job seekers automatically evaluate job listings on LinkedIn and Naukri using AI. This Privacy Policy explains what data we access, what is transmitted outside your device, to whom, and under what conditions.</p>
 
-  <h2>1. Data We Collect</h2>
-  <p>The Extension collects the following data:</p>
+  <h2>1. Data We Access</h2>
+  <p>The Extension accesses the following data:</p>
   <ul>
-    <li><strong>Resume Summary:</strong> A plain-text summary you manually enter in the Profile tab. Used locally to evaluate job matches.</li>
-    <li><strong>Target Roles and Locations:</strong> Job preferences you enter. Used to guide the bot's job search.</li>
-    <li><strong>API Keys:</strong> Optional API keys for OpenAI, Gemini, or Anthropic that you enter in Settings. Stored locally on your device only.</li>
-    <li><strong>Job Listings:</strong> Title, company, description, and URL of jobs scraped from LinkedIn and Naukri while the bot is running. Processed locally and not sent to any server unless you enable profile sharing.</li>
-    <li><strong>Matched Jobs:</strong> Jobs evaluated as a match are saved locally in your browser's storage.</li>
-    <li><strong>Profile Data (optional):</strong> If you enable "Share Anonymized Profile", your resume summary, target roles, locations, skills, and optionally name, email, and phone are sent to our backend server for inclusion in a recruiter-facing candidate database.</li>
+    <li><strong>Resume Summary:</strong> A plain-text summary you manually enter in the Profile tab. Stored locally on your device in <code>chrome.storage.local</code>.</li>
+    <li><strong>Target Roles and Locations:</strong> Job preferences you enter. Stored locally and used to guide the bot's job search.</li>
+    <li><strong>API Keys (optional):</strong> Optional API keys for OpenAI, Gemini, or Anthropic that you enter in Settings. Stored locally on your device only. <strong>API keys are never transmitted to our backend server or any other party.</strong></li>
+    <li><strong>Job Listings:</strong> Title, company, description, and URL of jobs scraped from LinkedIn and Naukri while the bot is running.</li>
+    <li><strong>Matched Jobs:</strong> Jobs evaluated as a match are saved locally in <code>chrome.storage.local</code>.</li>
+    <li><strong>Profile Data (optional, opt-in only):</strong> If you enable "Share Anonymized Profile", your resume summary, target roles, locations, skills, and optionally name, email, and phone are sent to our backend server for inclusion in a recruiter-facing candidate database.</li>
   </ul>
 
-  <h2>2. How We Use Your Data</h2>
+  <h2>2. Data Transmitted Outside Your Device</h2>
+
+  <div class="note">
+    <strong>Important:</strong> When you use AI evaluation features, your resume summary and job description are sent to AI service providers. The specific provider depends on your configuration, as described below.
+  </div>
+
+  <p>The following data is transmitted outside your device during normal use:</p>
+
+  <h3>2a. AI Evaluation (job scoring, cover letter generation, resume rewriting)</h3>
+  <p>When you trigger an AI evaluation, your <strong>resume summary</strong> and the <strong>job title and description</strong> are sent to an AI provider. Which provider receives this data depends on your configuration:</p>
   <ul>
-    <li>Resume summary and job data are used locally to evaluate job fit using AI.</li>
-    <li>If profile sharing is enabled, your anonymized profile is stored in our database and made searchable by recruiters.</li>
-    <li>We use Groq's API (via our backend proxy) and/or a self-hosted Ollama instance to process AI requests. Job descriptions and your resume summary are sent to these services for evaluation. No data is retained by these services beyond the request.</li>
-    <li>We do not use your data for advertising or sell it to third parties.</li>
+    <li><strong>Free tier (default):</strong> Data is sent to our backend proxy server hosted on Railway.app, which forwards it to <strong>Groq</strong> (using their API). If Groq is unavailable, it may fall back to a self-hosted <strong>Ollama</strong> instance on our backend.</li>
+    <li><strong>OpenAI BYOK:</strong> If you enter your own OpenAI API key, data is sent <em>directly from your browser</em> to <strong>api.openai.com</strong>. Our backend server is not involved.</li>
+    <li><strong>Google Gemini BYOK:</strong> If you enter your own Gemini API key, data is sent <em>directly from your browser</em> to <strong>generativelanguage.googleapis.com</strong>. Our backend server is not involved.</li>
+    <li><strong>Anthropic BYOK:</strong> If you enter your own Anthropic API key, data is sent <em>directly from your browser</em> to <strong>api.anthropic.com</strong>. Our backend server is not involved.</li>
+  </ul>
+
+  <h3>2b. Profile Sharing (opt-in only)</h3>
+  <p>If you explicitly enable "Share Anonymized Profile" in the Profile tab, your resume summary, target roles, locations, and skills are sent to our backend server on Railway.app. PII (name, email, phone) is only included if you explicitly provide it. This feature is disabled by default.</p>
+
+  <h3>2c. Data That Is NOT Transmitted</h3>
+  <ul>
+    <li>API keys are never sent to our backend or shared with any third party.</li>
+    <li>Saved job history, session logs, and settings remain on your device unless profile sharing is explicitly enabled.</li>
+    <li>No data is collected or transmitted during ordinary browsing (before an AI evaluation is triggered or profile sharing is enabled).</li>
   </ul>
 
   <h2>3. Data Storage</h2>
@@ -46,17 +66,22 @@
     <li>PII (name, email, phone) is only stored if you explicitly provide it and is masked by default from recruiters until they spend an event credit to reveal it.</li>
   </ul>
 
-  <h2>4. Data Sharing</h2>
+  <h2>4. Data Sharing with Third Parties</h2>
   <p>Your data may be shared with the following parties:</p>
   <ul>
-    <li><strong>Groq (api.groq.com):</strong> Job descriptions and resume summaries are sent via our backend proxy for AI evaluation. Groq's privacy policy applies: <a href="https://groq.com/privacy-policy/" target="_blank">groq.com/privacy-policy</a></li>
-    <li><strong>Railway.app:</strong> Our backend server is hosted on Railway. Profile data (if sharing is enabled) is stored here. Railway's privacy policy: <a href="https://railway.app/legal/privacy" target="_blank">railway.app/legal/privacy</a></li>
+    <li><strong>Groq (api.groq.com) — free tier users:</strong> Job title, description, and resume summary are sent via our backend proxy for AI evaluation. Groq's privacy policy applies: <a href="https://groq.com/privacy-policy/" target="_blank">groq.com/privacy-policy</a>. We cannot independently verify Groq's data retention practices; refer to their privacy policy.</li>
+    <li><strong>OpenAI (api.openai.com) — BYOK users:</strong> If you configure an OpenAI API key, job and resume data is sent directly from your browser to OpenAI. OpenAI's privacy policy applies: <a href="https://openai.com/policies/privacy-policy" target="_blank">openai.com/policies/privacy-policy</a>.</li>
+    <li><strong>Google Gemini API (generativelanguage.googleapis.com) — BYOK users:</strong> If you configure a Gemini API key, job and resume data is sent directly from your browser to Google. Google's privacy policy applies: <a href="https://policies.google.com/privacy" target="_blank">policies.google.com/privacy</a>.</li>
+    <li><strong>Anthropic (api.anthropic.com) — BYOK users:</strong> If you configure an Anthropic API key, job and resume data is sent directly from your browser to Anthropic. Anthropic's privacy policy applies: <a href="https://www.anthropic.com/privacy" target="_blank">anthropic.com/privacy</a>.</li>
+    <li><strong>Railway.app:</strong> Our backend server is hosted on Railway. Free-tier evaluation requests are proxied through it. Profile data (if sharing is enabled) is stored here. Railway's privacy policy: <a href="https://railway.app/legal/privacy" target="_blank">railway.app/legal/privacy</a>.</li>
     <li><strong>Recruiters:</strong> If you opt in to profile sharing, anonymized profile data (role, skills, location) is visible to recruiters using our platform. PII is only revealed upon your explicit consent and a recruiter spending an event credit.</li>
     <li>We do not share data with any other third parties.</li>
   </ul>
 
   <h2>5. Your Choices</h2>
   <ul>
+    <li>You can disable AI evaluation at any time — simply do not use the evaluation features.</li>
+    <li>You can switch between free tier and BYOK providers in the Settings tab. The active provider is always shown before evaluation begins.</li>
     <li>You can disable profile sharing at any time by unchecking "Share Anonymized Profile" in the Profile tab.</li>
     <li>You can clear all locally stored data via the "Clear History" button in Settings.</li>
     <li>You can uninstall the Extension at any time, which removes all locally stored data.</li>
@@ -64,7 +89,7 @@
   </ul>
 
   <h2>6. Data Retention</h2>
-  <p>Local data is retained until you clear it or uninstall the Extension. Backend profile data is retained until you request deletion.</p>
+  <p>Local data is retained until you clear it or uninstall the Extension. Backend profile data is retained until you request deletion. We cannot independently verify how long Groq, OpenAI, Google, or Anthropic retain data processed through their APIs — refer to their respective privacy policies.</p>
 
   <h2>7. Children's Privacy</h2>
   <p>This Extension is not intended for users under the age of 13. We do not knowingly collect data from children.</p>

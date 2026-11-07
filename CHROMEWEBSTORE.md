@@ -1,6 +1,6 @@
 # Chrome Web Store Listing — AI Job Assistant
 
-> Last Updated: 2026-06-17
+> Last Updated: 2026-11-07
 
 ## Store Listing
 
@@ -16,7 +16,7 @@ AI Job Assistant is your ultimate companion for job hunting on LinkedIn and Nauk
 Key Features:
 - Resume Match Score: Instantly see how well your skills, requirements, and responsibilities match the job description.
 - Cover Letter Generation: Generate a custom, professional, 2-paragraph cover letter tailored directly to the job post.
-- Local Storage & Privacy: All your data is saved locally on your device.
+- Local Storage & Privacy: Saved jobs, settings, and API keys are kept on your device. Job and resume data is sent to AI providers only when you trigger an evaluation (see Privacy Policy for full details).
 - Flexible LLM Integration: Use our free recommended model tier or connect your own API keys for OpenAI, Gemini, or Anthropic.
 
 How to Use:
@@ -69,7 +69,15 @@ Every permission listed below is required for the core functionality of the AI J
 
 ### Data Collection
 
-**Does the extension collect user data?** No (The extension does not collect or transmit user data off-device unless explicit user action is taken to sync profile information to the recruiter platform).
+**Does the extension collect user data?** Yes, in the following limited ways:
+
+- **AI Evaluation (job scoring, cover letter, resume rewriting):** When an AI evaluation is triggered, the job title, description, and your resume summary are transmitted to an AI provider. The specific provider depends on your configuration:
+  - **Free tier:** Sent via our backend proxy (Railway.app) to Groq's API (with Ollama as fallback).
+  - **OpenAI BYOK:** Sent directly from your browser to `api.openai.com`.
+  - **Google Gemini BYOK:** Sent directly from your browser to `generativelanguage.googleapis.com`.
+  - **Anthropic BYOK:** Sent directly from your browser to `api.anthropic.com`.
+- **Profile Sharing (opt-in only):** If you explicitly enable "Share Anonymized Profile", your resume summary, target roles, locations, and skills are sent to our backend server. Disabled by default.
+- **What is NOT transmitted:** API keys, saved job history, session logs, and settings remain on-device. No data is transmitted during ordinary browsing — only when evaluation is triggered or profile sharing is explicitly enabled.
 
 ### Data Use Certification
 - [x] Data is NOT sold to third parties
@@ -107,6 +115,7 @@ support@gyanam.store
 
 | Version | Date | Changes | Status |
 |---------|------|---------|--------|
+| 2.0.9 | 2026-11-07 | Fixed legacy score coverage labelling (historical records no longer silently upgraded to partial/full coverage); corrected privacy disclosures in privacy-policy.html and CHROMEWEBSTORE.md to accurately reflect AI evaluation data flow; added real MV3 unpacked extension smoke test; added test prerequisites documentation. | Draft |
 | 2.0.8 | 2026-11-07 | Modernized Anthropic Claude Sonnet 5 integration, added factuality safeguards for resume rewriting, introduced multi-dimensional scoring coverage with minimum classification thresholds, hardened DOM/URL safety, and removed review prompt loop. | Draft |
 | 2.0.7 | 2026-06-17 | Quality and security improvements, deterministic scoring, profile sharing consent. | Published |
 | 2.0.6 | 2026-05-10 | Initial MV3 release with side panel and custom BYOK integrations. | Published |

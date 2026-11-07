@@ -204,7 +204,7 @@ async def test_xss_and_saved_jobs(browser):
     assert await valid_link.get_attribute("rel") == "noopener noreferrer"
     saved_text = await page.locator("#savedJobsList").inner_text()
     assert "Coverage 2/3 partial" in saved_text
-    assert "Coverage N/A" in saved_text  # legacy records without dimension scores stay safe
+    assert "Coverage: Legacy" in saved_text  # legacy records with no scoreCoverage are labelled, not inferred
     await page.close()
 
 
