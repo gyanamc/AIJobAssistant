@@ -1,4 +1,18 @@
-# AI Job Assistant Extension (v2.0.9)
+# AI Job Assistant Extension (v2.1.0)
+
+## v2.1.0 release summary (November 8, 2026)
+
+- Application tracker with eight stages, per-job dates, recruiter details, notes, last-updated timestamps, stage counters, search, filters, and deletion confirmation.
+- Follow-up dashboard classifies local calendar dates as overdue, due today, or upcoming; users can complete or reschedule follow-ups without notification/alarm permissions.
+- Narrow-panel comparison for up to three saved jobs, including evidence scores, coverage reliability, skills, status, and original URLs. Missing values are explicitly unavailable and no ranking is fabricated.
+- Evidence-based actionable insights separate resume-supported strengths, missing essential requirements, and learning recommendations.
+- Legacy saved jobs are migrated in place with tracker defaults while IDs, URLs, evaluation data, and CSV compatibility are preserved. Save refreshes retain tracker fields.
+- CSV export adds status, application date, follow-up date, contact name/email, and notes with RFC-style quote/newline escaping.
+- BYOK keys remain local at rest and are never sent to the AI Job Assistant backend; user-initiated requests transmit them directly to the selected provider for authentication.
+- Gemini uses the documented `x-goog-api-key` header and active `gemini-2.5-flash` generateContent endpoint. No new Chrome permissions were added.
+- Packaging: run `python3 scripts/build_zip.py` from the repository root. It produces and validates `dist/AIJobAssistant-v2.1.0.zip` with `manifest.json` at the archive root.
+
+Known limitations: reminders are in-extension only; comparison selection lasts for the current side-panel session; headless MV3 smoke testing verifies service-worker startup and side-panel resource resolution but not visible native side-panel interaction.
 
 ## 1. Selected Anthropic Model and API Compatibility
 - **Model Identifier**: `claude-sonnet-5` (centralized in `background/background.js` as `const ANTHROPIC_MODEL`).
@@ -85,7 +99,7 @@
 - **Corrected `CHROMEWEBSTORE.md`**: Removed the blanket "does not collect or transmit user data off-device" statement, which contradicted the AI evaluation data flow. Replaced with an accurate breakdown by provider path.
 
 ### 8c. Real MV3 Extension Smoke Test
-- **Added `tests/mv3_smoke.py`**: Loads `extension-v2/` as a real unpacked Chrome extension via Playwright persistent context with `--load-extension` / `--headless=new`. Verifies: service worker registration, side-panel page loads at `chrome-extension://` URL, no uncaught JS exceptions, `chrome.runtime` and `chrome.storage` APIs accessible, `chrome.runtime.id` correct, no critical console errors. AI endpoint calls are intercepted and aborted (no real API calls during testing). Skips gracefully (exit 0, clear SKIP message) if Chrome or Playwright is unavailable.
+- **Added `tests/mv3_smoke.py`**: Loads `extension-v2/` as a real unpacked Chrome extension via Chrome/CDP with `--load-extension` / `--headless=new`. Verifies service-worker registration, side-panel resource resolution, runtime API access, extension identity, and service-worker errors. It does not claim visible side-panel rendering, JavaScript initialization, UI interaction, or provider-request interception in headless mode.
 - **Added `tests/mv3-smoke.test.js`**: Node.js runner that invokes `mv3_smoke.py` and surfaces skip/pass/fail to the Node test reporter.
 
 ### 8d. Test Prerequisites Documentation

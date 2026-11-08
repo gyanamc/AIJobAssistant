@@ -17,7 +17,7 @@
 <body>
 
   <h1>Privacy Policy</h1>
-  <p class="updated">Last updated: November 7, 2026</p>
+  <p class="updated">Last updated: November 8, 2026</p>
 
   <p>AI Job Assistant ("the Extension") is a Chrome browser extension that helps job seekers automatically evaluate job listings on LinkedIn and Naukri using AI. This Privacy Policy explains what data we access, what is transmitted outside your device, to whom, and under what conditions.</p>
 
@@ -26,7 +26,7 @@
   <ul>
     <li><strong>Resume Summary:</strong> A plain-text summary you manually enter in the Profile tab. Stored locally on your device in <code>chrome.storage.local</code>.</li>
     <li><strong>Target Roles and Locations:</strong> Job preferences you enter. Stored locally and used to guide the bot's job search.</li>
-    <li><strong>API Keys (optional):</strong> Optional API keys for OpenAI, Gemini, or Anthropic that you enter in Settings. Stored locally on your device only. <strong>API keys are never transmitted to our backend server or any other party.</strong></li>
+    <li><strong>API Keys (optional):</strong> Optional API keys for OpenAI, Gemini, or Anthropic that you enter in Settings are stored locally on your device and are never sent to our backend. When you initiate a BYOK request, the key is transmitted directly to the corresponding provider as authentication for that request.</li>
     <li><strong>Job Listings:</strong> Title, company, description, and URL of jobs scraped from LinkedIn and Naukri while the bot is running.</li>
     <li><strong>Matched Jobs:</strong> Jobs evaluated as a match are saved locally in <code>chrome.storage.local</code>.</li>
     <li><strong>Profile Data (optional, opt-in only):</strong> If you enable "Share Anonymized Profile", your resume summary, target roles, locations, skills, and optionally name, email, and phone are sent to our backend server for inclusion in a recruiter-facing candidate database.</li>
@@ -54,7 +54,7 @@
 
   <h3>2c. Data That Is NOT Transmitted</h3>
   <ul>
-    <li>API keys are never sent to our backend or shared with any third party.</li>
+    <li>API keys are never sent to our backend. A BYOK key is sent directly to its corresponding AI provider (OpenAI, Google, or Anthropic) as an authentication credential only when you initiate a request.</li>
     <li>Saved job history, session logs, and settings remain on your device unless profile sharing is explicitly enabled.</li>
     <li>No data is collected or transmitted during ordinary browsing (before an AI evaluation is triggered or profile sharing is enabled).</li>
   </ul>

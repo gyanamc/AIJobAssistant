@@ -8,33 +8,19 @@
  *
  * Uses the Node.js built-in test runner (node:test). No network access; no
  * external dependencies.
+ *
+ * NOTE: normalizeCoverage is imported from lib/coverage.js (the shared
+ * production module). This test file no longer duplicates the implementation.
  */
 
 'use strict';
 
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
+const path = require('node:path');
 
-// ---------------------------------------------------------------------------
-// Inline normalizeCoverage — mirrors the implementation in sidepanel.js.
-// If the implementation in sidepanel.js changes, this mirror MUST be updated
-// to match so the tests continue to reflect the real code path.
-// ---------------------------------------------------------------------------
-function normalizeCoverage(coverage, scores = {}) {
-  // Only trust coverage objects that carry verified dimension metadata
-  // produced by the deterministic scoring implementation (v2.0.8+).
-  if (coverage && Number.isInteger(coverage.assessedDimensions) && Number.isInteger(coverage.totalDimensions)) {
-    return coverage;
-  }
-  // Legacy record — no verified coverage metadata present.
-  // Raw numeric scores may have been produced by an earlier non-deterministic
-  // implementation and must NOT be used to infer coverage.
-  return {
-    assessedDimensions: 0,
-    totalDimensions: 3,
-    status: 'legacy'
-  };
-}
+// Import from shared production module
+const { normalizeCoverage } = require(path.join(__dirname, '..', 'lib', 'coverage.js'));
 
 // ---------------------------------------------------------------------------
 // 1. Legacy record with all three numeric scores but no scoreCoverage
@@ -148,4 +134,3 @@ test('valid scoreCoverage with unavailable status → preserved as-is', () => {
   assert.equal(result.assessedDimensions, 0);
   assert.equal(result, coverage);
 });
-

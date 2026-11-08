@@ -1,6 +1,6 @@
 # Chrome Web Store Listing — AI Job Assistant
 
-> Last Updated: 2026-11-07
+> Last Updated: 2026-11-08
 
 ## Store Listing
 
@@ -76,8 +76,9 @@ Every permission listed below is required for the core functionality of the AI J
   - **OpenAI BYOK:** Sent directly from your browser to `api.openai.com`.
   - **Google Gemini BYOK:** Sent directly from your browser to `generativelanguage.googleapis.com`.
   - **Anthropic BYOK:** Sent directly from your browser to `api.anthropic.com`.
+- **BYOK authentication:** Keys are stored in `chrome.storage.local`, are not sent to our backend, and are transmitted directly to the selected provider to authenticate user-initiated requests.
 - **Profile Sharing (opt-in only):** If you explicitly enable "Share Anonymized Profile", your resume summary, target roles, locations, and skills are sent to our backend server. Disabled by default.
-- **What is NOT transmitted:** API keys, saved job history, session logs, and settings remain on-device. No data is transmitted during ordinary browsing — only when evaluation is triggered or profile sharing is explicitly enabled.
+- **What is NOT transmitted to our backend:** BYOK API keys, saved job history, session logs, and settings. BYOK keys necessarily go directly to the selected provider for authentication. No data is transmitted during ordinary browsing — only when evaluation is triggered or profile sharing is explicitly enabled.
 
 ### Data Use Certification
 - [x] Data is NOT sold to third parties
@@ -115,6 +116,7 @@ support@gyanam.store
 
 | Version | Date | Changes | Status |
 |---------|------|---------|--------|
+| 2.1.0 | 2026-11-08 | Added application tracking, follow-up management, three-job comparison, actionable fit insights, tracker CSV fields, backward-compatible saved-job migration, corrected BYOK disclosures, and moved Gemini authentication to the `x-goog-api-key` header with an active model. No new permissions. | Draft |
 | 2.0.9 | 2026-11-07 | Fixed legacy score coverage labelling (historical records no longer silently upgraded to partial/full coverage); corrected privacy disclosures in privacy-policy.html and CHROMEWEBSTORE.md to accurately reflect AI evaluation data flow; added real MV3 unpacked extension smoke test; added test prerequisites documentation. | Draft |
 | 2.0.8 | 2026-11-07 | Modernized Anthropic Claude Sonnet 5 integration, added factuality safeguards for resume rewriting, introduced multi-dimensional scoring coverage with minimum classification thresholds, hardened DOM/URL safety, and removed review prompt loop. | Draft |
 | 2.0.7 | 2026-06-17 | Quality and security improvements, deterministic scoring, profile sharing consent. | Published |

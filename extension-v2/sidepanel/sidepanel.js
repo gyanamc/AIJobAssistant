@@ -5,6 +5,10 @@ document.addEventListener('DOMContentLoaded', () => {
   // ── State ──────────────────────────────────────────────────────────────────
   let currentView = 'analysis';
   let currentJob  = null;
+  let compareSelection = []; // up to 3 jobs for side-by-side comparison
+  let _trackerFilter = 'all';
+  let _trackerSearch = '';
+  let _appDetailKey  = null; // id or url of the job being edited
   const { hasExplicitSharingConsent, consentStorageUpdate, safeExternalUrl } = ExtensionPolicies;
 
   // Theme cycle: dark → light → system → dark
@@ -28,6 +32,8 @@ document.addEventListener('DOMContentLoaded', () => {
   const settingsView = document.getElementById('settingsView');
   const profileView  = document.getElementById('profileView');
   const savedView    = document.getElementById('savedView');
+  const trackerView  = document.getElementById('trackerView');
+  const compareView  = document.getElementById('compareView');
 
   // Nav buttons
   const navBtns = document.querySelectorAll('.nav-btn');
@@ -43,6 +49,7 @@ document.addEventListener('DOMContentLoaded', () => {
   setupSettings();
   setupProfile();
   setupTheme();
+  initTracker();
   listenForMessages();
 
   // ── Navigation ─────────────────────────────────────────────────────────────
@@ -62,7 +69,7 @@ document.addEventListener('DOMContentLoaded', () => {
     navBtns.forEach(b => b.classList.toggle('active', b.dataset.view === view));
 
     // Hide all views
-    [logView, settingsView, profileView, savedView].forEach(v => v.classList.add('hidden'));
+    [logView, settingsView, profileView, savedView, trackerView, compareView].forEach(v => v && v.classList.add('hidden'));
     idleView.classList.add('hidden');
     analysisView.classList.add('hidden');
 
@@ -81,6 +88,12 @@ document.addEventListener('DOMContentLoaded', () => {
     } else if (view === 'saved') {
       savedView.classList.remove('hidden');
       renderSavedJobs();
+    } else if (view === 'tracker') {
+      trackerView && trackerView.classList.remove('hidden');
+      renderTracker(_trackerFilter, _trackerSearch);
+    } else if (view === 'compare') {
+      compareView && compareView.classList.remove('hidden');
+      renderCompareView();
     }
   }
 
@@ -501,9 +514,10 @@ document.addEventListener('DOMContentLoaded', () => {
         };
 
         if (existingIdx >= 0) {
-          saved[existingIdx] = entry;
+          // Evaluation/cover-letter refreshes must never erase tracker data.
+          saved[existingIdx] = TrackerLib.mergeTrackerFields({ ...saved[existingIdx], ...entry }, saved[existingIdx]);
         } else {
-          saved.unshift(entry);
+          saved.unshift(TrackerLib.mergeTrackerFields(entry));
           if (saved.length > 200) saved.pop();
         }
 
@@ -596,6 +610,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Reasoning
     document.getElementById('reasoningText').textContent = jobResult.evaluation?.reasoning || '--';
+
+    // Insights panel
+    renderInsights(jobResult.evaluation || {});
 
     // Cover letter (if already generated)
     if (jobResult.evaluation?.cover_letter) {
@@ -692,7 +709,7 @@ document.addEventListener('DOMContentLoaded', () => {
       const exists = saved.find(j => j.url === (jobResult.applyUrl || jobResult.url));
       if (!exists) {
         // Manually saved job (e.g. non-match the user wants to keep)
-        saved.unshift({
+        saved.unshift(TrackerLib.mergeTrackerFields({
           title:        jobResult.title        || '',
           company:      jobResult.company      || '',
           location:     jobResult.location     || '',
@@ -711,7 +728,7 @@ document.addEventListener('DOMContentLoaded', () => {
           reasoning:    jobResult.evaluation?.reasoning    || '',
           coverLetter:  jobResult.evaluation?.cover_letter || '',
           savedAt:      new Date().toISOString()
-        });
+        }));
         chrome.storage.local.set({ savedJobs: saved }, () => {
           addLog(`Saved: ${jobResult.title} at ${jobResult.company}`, 'success');
           renderSavedJobs();
@@ -823,6 +840,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
       container.querySelectorAll('.sj-delete-btn').forEach(btn => {
         btn.addEventListener('click', () => {
+          const selected = saved[Number(btn.dataset.idx)];
+          if (!confirm(`Remove "${selected?.title || 'this job'}" from saved jobs?`)) return;
           chrome.storage.local.get(['savedJobs'], (d) => {
             const jobs = d.savedJobs || [];
             jobs.splice(Number(btn.dataset.idx), 1);
@@ -851,21 +870,9 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function normalizeCoverage(coverage, scores = {}) {
-    // Only trust coverage objects that carry verified dimension metadata
-    // produced by the deterministic scoring implementation (v2.0.8+).
-    if (coverage && Number.isInteger(coverage.assessedDimensions) && Number.isInteger(coverage.totalDimensions)) {
-      return coverage;
-    }
-    // Legacy record — no verified coverage metadata present.
-    // Raw numeric scores (skillsScore / reqsScore / respScore) may have been
-    // produced by an earlier non-deterministic implementation and must NOT be
-    // used to infer coverage. Label these records as legacy so users are never
-    // misled about the reliability of their historical scores.
-    return {
-      assessedDimensions: 0,
-      totalDimensions: 3,
-      status: 'legacy'
-    };
+    // Delegate to shared lib/coverage.js module (CoverageLib).
+    // This wrapper is kept for backward compatibility with existing call sites.
+    return CoverageLib.normalizeCoverage(coverage, scores);
   }
 
   function exportCsv() {
@@ -873,27 +880,7 @@ document.addEventListener('DOMContentLoaded', () => {
       const saved = data.savedJobs || [];
       if (!saved.length) { addLog('No saved jobs to export.', 'warn'); return; }
 
-      const headers = [
-        'Date Saved', 'Job Title', 'Company', 'Location', 'Job Type', 'Salary',
-        'Match Score', 'Skills Score', 'Req Score', 'Resp Score',
-        'Matched Skills', 'Missing Skills',
-        'Apply URL', 'Contact Email',
-        'AI Reasoning', 'Cover Letter'
-      ];
-
-      const rows = saved.map(j => [
-        new Date(j.savedAt).toLocaleString('en-IN'),
-        j.title, j.company, j.location, j.jobType, j.salary,
-        j.score, j.skillsScore, j.reqsScore, j.respScore,
-        (j.matchedSkills || []).join('; '),
-        (j.missingSkills || []).join('; '),
-        j.applyUrl || j.url,
-        j.contactEmail,
-        j.reasoning,
-        j.coverLetter
-      ].map(v => `"${String(v || '').replace(/"/g, '""')}"`));
-
-      const csv  = [headers.map(h => `"${h}"`).join(','), ...rows.map(r => r.join(','))].join('\n');
+      const csv = TrackerLib.buildSavedJobsCsv(saved);
       const blob = new Blob([csv], { type: 'text/csv' });
       const url  = URL.createObjectURL(blob);
 
@@ -994,6 +981,508 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function capitalize(str) {
     return str.charAt(0).toUpperCase() + str.slice(1);
+  }
+
+  // ── Actionable Insights ────────────────────────────────────────────────────
+  function buildInsights(evaluation) {
+    const matchedSkills = evaluation.matchedSkills || [];
+    const missingSkills = evaluation.missingSkills || [];
+    const requirements  = evaluation.requirements  || [];
+
+    // Strengths: matched skills + matched critical/important requirements
+    const strengths = [];
+    matchedSkills.slice(0, 3).forEach(s => strengths.push({ label: s, type: 'matched' }));
+    requirements.filter(r => r.matched === true).forEach(r => {
+      if (strengths.length < 3) strengths.push({ label: r.text, type: 'matched' });
+    });
+
+    // Gaps: unmatched requirements (critical first, then important)
+    const essentialMissing = requirements.filter(r => r.priority === 'critical' && r.matched === false);
+    const gaps = [];
+    essentialMissing.slice(0, 3).forEach(r => gaps.push({ label: r.text, type: 'missing' }));
+    if (gaps.length < 3) {
+      requirements.filter(r => r.priority === 'important' && r.matched === false)
+        .slice(0, 3 - gaps.length).forEach(r => gaps.push({ label: r.text, type: 'missing' }));
+    }
+
+    // Skills to consider
+    const skillsToLearn = missingSkills.slice(0, 3).map(s => ({ label: s, type: 'tip' }));
+
+    // Application tips
+    const tips = [];
+    if (matchedSkills.length > 0) {
+      tips.push(`Highlight your ${matchedSkills.slice(0, 2).join(' and ')} experience in your cover letter.`);
+    }
+    if (essentialMissing.length > 0) {
+      tips.push(`Address the gap in "${essentialMissing[0].text.substring(0, 60)}" — mention any adjacent experience.`);
+    } else if (missingSkills.length > 0) {
+      tips.push(`Consider obtaining skills in ${missingSkills.slice(0, 2).join(', ')} to strengthen your profile.`);
+    }
+
+    return { strengths, gaps, skillsToLearn, tips };
+  }
+
+  function renderInsights(evaluation) {
+    const container = document.getElementById('insightsContent');
+    if (!container) return;
+    container.replaceChildren();
+
+    const insights = buildInsights(evaluation);
+    const hasContent = insights.strengths.length || insights.gaps.length || insights.skillsToLearn.length;
+
+    if (!hasContent) {
+      const msg = document.createElement('p');
+      msg.className = 'reasoning-text';
+      msg.style.paddingTop = '10px';
+      msg.textContent = 'Insights will appear after a full evaluation with resume data.';
+      container.appendChild(msg);
+      return;
+    }
+
+    function insightGroup(title, items, icon) {
+      if (!items.length) return null;
+      const wrap = document.createElement('div');
+      wrap.style.marginBottom = '10px';
+      const h = document.createElement('div');
+      h.className = 'insight-group-title';
+      h.textContent = `${icon} ${title}`;
+      wrap.appendChild(h);
+      items.forEach(item => {
+        const el = document.createElement('div');
+        el.className = `insight-item insight-${item.type}`;
+        el.textContent = item.label;
+        wrap.appendChild(el);
+      });
+      return wrap;
+    }
+
+    const sections = [
+      insightGroup('Strengths (in your resume)', insights.strengths, '✅'),
+      insightGroup('Gaps (not found in resume)', insights.gaps, '⚠️'),
+      insightGroup('Skills to consider learning', insights.skillsToLearn, '💡'),
+    ];
+    sections.forEach(s => s && container.appendChild(s));
+
+    if (insights.tips.length) {
+      const tipsWrap = document.createElement('div');
+      tipsWrap.style.marginTop = '8px';
+      const th = document.createElement('div');
+      th.className = 'insight-group-title';
+      th.textContent = '📌 Application Tips';
+      tipsWrap.appendChild(th);
+      insights.tips.forEach(tip => {
+        const el = document.createElement('div');
+        el.className = 'insight-item insight-tip';
+        el.textContent = tip;
+        tipsWrap.appendChild(el);
+      });
+      container.appendChild(tipsWrap);
+    }
+  }
+
+  // ── Tracker ────────────────────────────────────────────────────────────────
+  function initTracker() {
+    // Filter buttons
+    const filterBar = document.getElementById('trackerFilterBar');
+    if (filterBar) {
+      filterBar.addEventListener('click', (e) => {
+        const btn = e.target.closest('.tracker-filter-btn');
+        if (!btn) return;
+        filterBar.querySelectorAll('.tracker-filter-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        _trackerFilter = btn.dataset.status;
+        renderTracker(_trackerFilter, _trackerSearch);
+      });
+    }
+
+    // Search input
+    const searchInput = document.getElementById('trackerSearch');
+    if (searchInput) {
+      searchInput.addEventListener('input', () => {
+        _trackerSearch = searchInput.value.trim().toLowerCase();
+        renderTracker(_trackerFilter, _trackerSearch);
+      });
+    }
+
+    // App detail modal buttons
+    const closeBtn  = document.getElementById('appDetailClose');
+    const cancelBtn = document.getElementById('appDetailCancel');
+    const saveBtn   = document.getElementById('appDetailSave');
+    if (closeBtn)  closeBtn.addEventListener('click', closeAppDetail);
+    if (cancelBtn) cancelBtn.addEventListener('click', closeAppDetail);
+    if (saveBtn)   saveBtn.addEventListener('click', saveAppDetail);
+  }
+
+  function renderTracker(filter = 'all', search = '') {
+    chrome.storage.local.get(['savedJobs'], (data) => {
+      const allJobs = (data.savedJobs || []).map(j => TrackerLib.migrateRecord(j));
+      renderDashboardStats(allJobs);
+      renderFollowUps(allJobs);
+
+      let filtered = allJobs;
+      if (filter !== 'all') {
+        filtered = filtered.filter(j => (j.applicationStatus || 'Saved') === filter);
+      }
+      if (search) {
+        filtered = filtered.filter(j =>
+          (j.title || '').toLowerCase().includes(search) ||
+          (j.company || '').toLowerCase().includes(search)
+        );
+      }
+
+      const container = document.getElementById('trackerList');
+      if (!container) return;
+      container.replaceChildren();
+
+      if (!filtered.length) {
+        const empty = document.createElement('p');
+        empty.className = 'empty-state';
+        empty.textContent = allJobs.length
+          ? 'No jobs match the current filter.'
+          : 'No saved jobs yet. Save jobs from the analysis view.';
+        container.appendChild(empty);
+        return;
+      }
+
+      filtered.forEach(job => container.appendChild(renderTrackerCard(job)));
+    });
+  }
+
+  function renderDashboardStats(savedJobs) {
+    const stats = TrackerLib.calculateStats(savedJobs);
+    const container = document.getElementById('trackerStats');
+    if (!container) return;
+    container.replaceChildren();
+
+    const stageCounts = Object.fromEntries(TrackerLib.APPLICATION_STATUSES.map(status => [
+      status,
+      savedJobs.filter(job => (job.applicationStatus || 'Saved') === status).length
+    ]));
+    const chips = [
+      { label: 'Total',      value: stats.total,      key: 'total' },
+      ...TrackerLib.APPLICATION_STATUSES.map(status => ({ label: status, value: stageCounts[status], key: status })),
+      { label: 'Submitted',  value: stats.applied,    key: 'applied' },
+      { label: 'Due today',  value: stats.dueToday,   key: 'dueToday' },
+      { label: 'Overdue',    value: stats.overdue,    key: 'overdue' },
+    ];
+    chips.forEach(c => {
+      const chip = document.createElement('div');
+      chip.className = 'stat-chip';
+      if (c.key === 'overdue' && c.value > 0) chip.classList.add('stat-chip-overdue');
+      if (c.key === 'offers'  && c.value > 0) chip.classList.add('stat-chip-offer');
+      chip.append(
+        element('span', 'stat-num', c.value),
+        element('span', 'stat-label', c.label)
+      );
+      container.appendChild(chip);
+    });
+  }
+
+  function renderFollowUps(savedJobs) {
+    const today    = TrackerLib.localDateString(new Date());
+    const overdue  = savedJobs.filter(j => j.followUpDate && j.followUpDate < today);
+    const dueToday = savedJobs.filter(j => j.followUpDate && j.followUpDate === today);
+    const upcoming = savedJobs.filter(j => j.followUpDate && j.followUpDate > today);
+
+    const section = document.getElementById('followUpSection');
+    if (!section) return;
+
+    const hasAny = overdue.length || dueToday.length || upcoming.length;
+    section.classList.toggle('hidden', !hasAny);
+
+    function renderGroup(groupId, listId, jobs) {
+      const group = document.getElementById(groupId);
+      const list  = document.getElementById(listId);
+      if (!group || !list) return;
+      group.classList.toggle('hidden', !jobs.length);
+      list.replaceChildren();
+      jobs.forEach(job => {
+        const item = document.createElement('div');
+        item.className = 'followup-item';
+        const text = element('span', 'followup-text', `${job.title || 'Job'} @ ${job.company || 'Unknown company'} — ${job.followUpDate}`);
+        const complete = element('button', 'followup-complete-btn', 'Done');
+        complete.setAttribute('aria-label', `Mark follow-up complete for ${job.title || 'job'}`);
+        complete.addEventListener('click', () => {
+          TrackerLib.updateTrackerFields(job.id || job.url, { followUpDate: '' })
+            .then(() => renderTracker(_trackerFilter, _trackerSearch))
+            .catch(err => addLog(`Failed to update follow-up: ${err.message}`, 'error'));
+        });
+        const reschedule = element('button', 'followup-reschedule-btn', 'Change');
+        reschedule.addEventListener('click', () => openAppDetail(job.id || job.url));
+        item.append(text, complete, reschedule);
+        list.appendChild(item);
+      });
+    }
+
+    renderGroup('followupOverdue',  'followupOverdueList',  overdue);
+    renderGroup('followupToday',    'followupTodayList',    dueToday);
+    renderGroup('followupUpcoming', 'followupUpcomingList', upcoming);
+  }
+
+  const STATUS_COLORS = {
+    'Saved':            'var(--text-dim)',
+    'Planning to Apply':'var(--blue)',
+    'Applied':          'var(--accent)',
+    'Assessment':       'var(--orange)',
+    'Interview':        '#9c27b0',
+    'Offer':            '#ffd700',
+    'Rejected':         'var(--red)',
+    'Withdrawn':        'var(--text-dim)'
+  };
+
+  function renderTrackerCard(job) {
+    const card = document.createElement('div');
+    card.className = 'tracker-card';
+
+    const header = document.createElement('div');
+    header.className = 'tracker-card-header';
+
+    const titleWrap = document.createElement('div');
+    titleWrap.className = 'sj-title-wrap';
+    titleWrap.appendChild(element('div', 'sj-title', job.title || 'Unknown Job'));
+    titleWrap.appendChild(element('div', 'sj-company',
+      `${job.company || ''}${job.location ? ` · ${job.location}` : ''}`));
+
+    const statusBadge = document.createElement('span');
+    statusBadge.className = 'app-status-badge';
+    statusBadge.textContent = job.applicationStatus || 'Saved';
+    statusBadge.style.color = STATUS_COLORS[job.applicationStatus] || 'var(--text-dim)';
+
+    header.append(titleWrap, statusBadge);
+    card.appendChild(header);
+
+    // Follow-up indicator
+    if (job.followUpDate) {
+      const today = TrackerLib.localDateString(new Date());
+      const followEl = document.createElement('div');
+      followEl.className = 'followup-indicator';
+      const isOverdue = job.followUpDate < today;
+      const isToday   = job.followUpDate === today;
+      followEl.textContent = `Follow-up: ${job.followUpDate}`;
+      followEl.style.color = isOverdue ? 'var(--red)' : isToday ? 'var(--orange)' : 'var(--accent)';
+      card.appendChild(followEl);
+    }
+
+    // Score chip
+    const score = Number.isFinite(job.score) ? job.score : null;
+    if (score !== null) {
+      const metaRow = document.createElement('div');
+      metaRow.className = 'sj-meta';
+      metaRow.appendChild(element('span', 'sj-chip', `Match: ${score}%`));
+      card.appendChild(metaRow);
+    }
+
+    // Actions
+    const actions = document.createElement('div');
+    actions.className = 'sj-actions';
+
+    const editBtn = element('button', 'sj-expand-btn', '✏️ Edit');
+    editBtn.addEventListener('click', () => openAppDetail(job.id || job.url));
+    actions.appendChild(editBtn);
+
+    const compareBtn = element('button', 'sj-expand-btn', '⚖️ Compare');
+    compareBtn.addEventListener('click', () => {
+      addToCompare(job);
+      switchView('compare');
+    });
+    actions.appendChild(compareBtn);
+
+    const applyUrl = safeExternalUrl(job.applyUrl || job.url);
+    if (applyUrl) {
+      const applyLink = element('a', 'sj-apply-btn', 'Apply ↗');
+      applyLink.href = applyUrl;
+      applyLink.target = '_blank';
+      applyLink.rel = 'noopener noreferrer';
+      actions.appendChild(applyLink);
+    }
+
+    const delBtn = element('button', 'sj-delete-btn', '✕');
+    delBtn.title = 'Remove';
+    delBtn.addEventListener('click', () => {
+      if (!confirm(`Remove "${job.title}" from saved jobs?`)) return;
+      chrome.storage.local.get(['savedJobs'], (d) => {
+        const jobs = (d.savedJobs || []).filter(j =>
+          !((job.id && j.id === job.id) || (job.url && j.url === job.url))
+        );
+        chrome.storage.local.set({ savedJobs: jobs }, () => renderTracker(_trackerFilter, _trackerSearch));
+      });
+    });
+    actions.appendChild(delBtn);
+    card.appendChild(actions);
+
+    return card;
+  }
+
+  function openAppDetail(jobKey) {
+    _appDetailKey = jobKey;
+    chrome.storage.local.get(['savedJobs'], (data) => {
+      const job = (data.savedJobs || []).find(j =>
+        (jobKey && j.id && j.id === jobKey) || (jobKey && j.url && j.url === jobKey)
+      );
+      if (!job) return;
+      const migrated = TrackerLib.migrateRecord(job);
+      document.getElementById('appDetailTitle').textContent =
+        `${migrated.title || 'Job'} @ ${migrated.company || ''}`;
+      document.getElementById('appDetailStatus').value      = migrated.applicationStatus || 'Saved';
+      document.getElementById('appDetailAppliedDate').value = migrated.appliedDate || '';
+      document.getElementById('appDetailFollowUpDate').value = migrated.followUpDate || '';
+      document.getElementById('appDetailContactName').value = migrated.contactName || '';
+      document.getElementById('appDetailContactEmail').value = migrated.contactEmail || '';
+      document.getElementById('appDetailNotes').value       = migrated.notes || '';
+      const updated = migrated.trackerUpdatedAt ? new Date(migrated.trackerUpdatedAt) : null;
+      document.getElementById('appDetailUpdatedAt').textContent =
+        `Last updated: ${updated && !Number.isNaN(updated.getTime()) ? updated.toLocaleString() : 'Not yet updated'}`;
+      document.getElementById('appDetailModal').classList.remove('hidden');
+    });
+  }
+
+  function closeAppDetail() {
+    document.getElementById('appDetailModal').classList.add('hidden');
+    _appDetailKey = null;
+  }
+
+  function saveAppDetail() {
+    if (!_appDetailKey) return;
+    const updates = {
+      applicationStatus: document.getElementById('appDetailStatus').value,
+      appliedDate:       document.getElementById('appDetailAppliedDate').value,
+      followUpDate:      document.getElementById('appDetailFollowUpDate').value,
+      contactName:       document.getElementById('appDetailContactName').value,
+      contactEmail:      document.getElementById('appDetailContactEmail').value,
+      notes:             document.getElementById('appDetailNotes').value
+    };
+    TrackerLib.updateTrackerFields(_appDetailKey, updates)
+      .then(() => {
+        closeAppDetail();
+        renderTracker(_trackerFilter, _trackerSearch);
+      })
+      .catch(err => addLog(`Failed to save: ${err.message}`, 'error'));
+  }
+
+  // ── Comparison ─────────────────────────────────────────────────────────────
+  function addToCompare(job) {
+    const key = job.id || job.url;
+    const alreadyIn = compareSelection.find(j =>
+      (j.id && j.id === key) || (j.url && j.url === key)
+    );
+    if (alreadyIn) return; // already selected — do not add again
+    if (compareSelection.length >= 3) return; // max 3
+    compareSelection.push(job);
+  }
+
+  function removeFromCompare(key) {
+    compareSelection = compareSelection.filter(j =>
+      !((j.id && j.id === key) || (j.url && j.url === key))
+    );
+    renderCompareView();
+  }
+
+  function renderCompareView() {
+    // Update slots
+    for (let i = 0; i < 3; i++) {
+      const slot = document.getElementById(`compareSlot${i}`);
+      if (!slot) continue;
+      slot.replaceChildren();
+      const job = compareSelection[i];
+      if (job) {
+        slot.className = 'compare-slot filled';
+        slot.appendChild(element('div', 'compare-slot-title', job.title || 'Job'));
+        slot.appendChild(element('div', 'compare-slot-company', job.company || ''));
+        const removeBtn = element('button', 'sj-delete-btn', '✕');
+        removeBtn.style.marginTop = '6px';
+        removeBtn.addEventListener('click', () => removeFromCompare(job.id || job.url));
+        slot.appendChild(removeBtn);
+      } else {
+        slot.className = 'compare-slot empty';
+        const emptyText = document.createElement('span');
+        emptyText.className = 'compare-slot-empty-text';
+        emptyText.append(
+          document.createTextNode(`Slot ${i + 1}`),
+          document.createElement('br'),
+          element('small', '', 'Go to Saved to add')
+        );
+        slot.appendChild(emptyText);
+      }
+    }
+
+    // Clear compare button
+    const clearBtn = document.getElementById('clearCompareBtn');
+    if (clearBtn) {
+      clearBtn.onclick = () => { compareSelection = []; renderCompareView(); };
+    }
+
+    renderComparisonTable(compareSelection);
+  }
+
+  function renderComparisonTable(jobs) {
+    const container = document.getElementById('comparisonTable');
+    if (!container) return;
+    container.replaceChildren();
+
+    if (jobs.length < 2) {
+      container.appendChild(element('p', 'empty-state', 'Select at least 2 jobs to see a comparison.'));
+      return;
+    }
+
+    const rows = [
+          { label: 'Company',   fn: j => j.company || 'Not available' },
+          { label: 'Role',      fn: j => j.title || 'Not available' },
+          { label: 'Location',  fn: j => j.location || 'Not available' },
+          { label: 'Work arrangement', fn: j => j.workArrangement || j.jobType || 'Not available' },
+          { label: 'Salary',    fn: j => j.salary || 'Not available' },
+          { label: 'Overall Fit', fn: j => Number.isFinite(j.score) ? `${j.score}%` : 'Not available' },
+      { label: 'Skills Score', fn: j => Number.isFinite(j.skillsScore) ? `${j.skillsScore}%` : 'Not available' },
+          { label: 'Requirements', fn: j => Number.isFinite(j.reqsScore) ? `${j.reqsScore}%` : 'Not available' },
+          { label: 'Responsibilities', fn: j => Number.isFinite(j.respScore) ? `${j.respScore}%` : 'Not available' },
+      { label: 'Coverage',  fn: j => {
+        const cov = normalizeCoverage(j.scoreCoverage, j);
+        if (cov.status === 'legacy')      return 'Legacy';
+        if (cov.status === 'unavailable') return 'Not available';
+        return `${cov.assessedDimensions}/${cov.totalDimensions}`;
+      }},
+      { label: 'App Status', fn: j => j.applicationStatus || 'Saved' },
+          { label: 'Matched Skills', fn: j => (j.matchedSkills || []).slice(0, 5).join(', ') || 'Not available' },
+          { label: 'Missing Skills', fn: j => (j.missingSkills || []).slice(0, 3).join(', ') || 'Not available' },
+          { label: 'Job URL', fn: j => safeExternalUrl(j.applyUrl || j.url) || 'Not available' },
+    ];
+
+    const table = document.createElement('table');
+    table.className = 'compare-table';
+
+    // Header row
+    const thead = document.createElement('thead');
+    const headerRow = document.createElement('tr');
+    headerRow.appendChild(element('th', 'compare-th', 'Field'));
+    jobs.forEach(j => {
+      headerRow.appendChild(element('th', 'compare-th',
+        j.title ? j.title.substring(0, 25) : 'Job'));
+    });
+    thead.appendChild(headerRow);
+    table.appendChild(thead);
+
+    // Data rows
+    const tbody = document.createElement('tbody');
+    rows.forEach(row => {
+      const tr = document.createElement('tr');
+      tr.appendChild(element('td', 'compare-label', row.label));
+        jobs.forEach(j => {
+          const cell = element('td', 'compare-value');
+          const value = row.fn(j);
+          if (row.label === 'Job URL' && value !== 'Not available') {
+            const link = element('a', 'compare-job-link', 'Open posting ↗');
+            link.href = value;
+            link.target = '_blank';
+            link.rel = 'noopener noreferrer';
+            cell.appendChild(link);
+          } else {
+            cell.textContent = value;
+          }
+          tr.appendChild(cell);
+        });
+      tbody.appendChild(tr);
+    });
+    table.appendChild(tbody);
+    container.appendChild(table);
   }
 
 });

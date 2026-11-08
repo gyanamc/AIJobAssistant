@@ -16,6 +16,25 @@ This is a genuinely different test layer from browser_integration.py:
   - browser_integration.py:  mocked chrome.* APIs, file:// URL, no real SW.
   - mv3_smoke.py:            real unpacked extension, real SW, real origin.
 
+# WHAT THIS SMOKE TEST COVERS:
+# [✓] Extension loads as unpacked in real Chrome (--load-extension)
+# [✓] Service worker registers and runs (found in /json/list as service_worker type)
+# [✓] chrome.runtime API accessible in SW context (evaluated via CDP)
+# [✓] chrome.runtime.id is correct extension ID
+# [✓] storage permission present in manifest
+# [✓] No uncaught exceptions in service worker
+# [✓] No critical log errors in service worker
+# [✓] Side-panel URL is registered (Chrome resolves chrome-extension://ID/sidepanel/sidepanel.html)
+#
+# WHAT IS NOT COVERED (Chrome --headless=new limitation):
+# [✗] Side-panel HTML renders in a real browser window
+# [✗] Side-panel JavaScript fully initializes (DOMContentLoaded fires, all elements present)
+# [✗] End-to-end user interactions (click, type, storage read/write from UI)
+# [✗] Network request interception in extension context
+#
+# To test UI rendering and interactions, use a headed Chrome session or Playwright
+# with a real display (e.g., via xvfb on Linux CI).
+
 Checks:
   1. Background service worker registers (found in CDP /json/list).
   2. Extension ID is discoverable and consistent.
@@ -24,7 +43,7 @@ Checks:
   5. chrome.runtime and chrome.storage APIs are accessible (Runtime.evaluate).
   6. chrome.runtime.id matches the discovered extension ID.
   7. No hard console errors (SyntaxError, TypeError, etc.) via Log domain.
-  8. AI endpoint calls are not made (no network calls to blocked domains).
+  8. This startup-only test does not trigger or claim to intercept AI requests.
 
 Requirements:
   Python >= 3.9
@@ -53,15 +72,6 @@ EXTENSION_DIR = Path(__file__).resolve().parents[1]   # extension-v2/
 CHROME_PATH = Path("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome")
 
 REMOTE_DEBUG_PORT = 9231
-
-# AI-provider domains that must NOT be called during the smoke test
-BLOCKED_DOMAINS = [
-    "api.openai.com",
-    "api.anthropic.com",
-    "generativelanguage.googleapis.com",
-    "railway.app",
-    "api.groq.com",
-]
 
 # ---------------------------------------------------------------------------
 # Helpers

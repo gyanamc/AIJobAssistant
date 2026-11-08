@@ -302,8 +302,10 @@ test('OpenAI and Gemini evaluation paths remain functional with mocked APIs', as
   });
   assert.equal((await openai.evalWithOpenAI({ title: 'Engineer', description: 'Python' }, { apiKey: 'key', resumeSummary: 'Python' })).success, true);
 
-  const gemini = loadBackground(async (url) => {
-    assert.match(url, /^https:\/\/generativelanguage\.googleapis\.com\/v1beta\/models\/gemini-1\.5-flash/);
+  const gemini = loadBackground(async (url, options) => {
+    assert.match(url, /^https:\/\/generativelanguage\.googleapis\.com\/v1beta\/models\/gemini-2\.5-flash/);
+    assert.equal(options.headers['x-goog-api-key'], 'key');
+    assert.doesNotMatch(url, /[?&]key=/, 'API key must not appear in the URL');
     return {
       ok: true,
       status: 200,

@@ -17,6 +17,24 @@ chrome.storage.local.get(['botRunning'], (data) => {
   if (data.botRunning) log('Bot resumed from previous session.');
 });
 
+// Add tracker defaults to historical saved jobs once, preserving IDs, URLs,
+// scores, notes, and every other existing field.
+chrome.storage.local.get(['savedJobs'], (data) => {
+  const jobs = Array.isArray(data.savedJobs) ? data.savedJobs : [];
+  let changed = false;
+  const migrated = jobs.map(job => {
+    if (job.applicationStatus !== undefined) return job;
+    changed = true;
+    return {
+      ...job,
+      applicationStatus: 'Saved', appliedDate: '', followUpDate: '',
+      contactName: '', contactEmail: job.contactEmail || '', notes: '',
+      trackerUpdatedAt: null
+    };
+  });
+  if (changed) chrome.storage.local.set({ savedJobs: migrated });
+});
+
 // Open side panel when extension icon is clicked
 chrome.action.onClicked.addListener((tab) => {
   chrome.sidePanel.open({ tabId: tab.id });
@@ -418,10 +436,13 @@ async function evalWithGeminiAPI(jobData, storage) {
   if (!storage.apiKey) { log('ERROR: No Gemini API key set.'); return { success: false, error: 'Missing API key' }; }
   try {
     const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${storage.apiKey}`,
+      'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent',
       {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'x-goog-api-key': storage.apiKey
+        },
         body: JSON.stringify({
           system_instruction: { parts: { text: buildSystemPrompt() } },
           contents: [{ parts: [{ text: buildUserPrompt(jobData, storage) }] }],
@@ -540,9 +561,12 @@ async function callLLM(storage, prompt) {
     return data.choices[0].message.content;
   }
   if (model === 'gemini_api' && storage.apiKey) {
-    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${storage.apiKey}`, {
+    const res = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'x-goog-api-key': storage.apiKey
+      },
       body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
     });
     if (!res.ok) throw providerHttpError('Gemini', res.status);
@@ -637,6 +661,12 @@ function _doSave(jobData, evaluation) {
         missingSkills: evaluation.missingSkills  || [],
         reasoning:     evaluation.reasoning      || '',
         coverLetter:   evaluation.cover_letter   || '',
+        applicationStatus: 'Saved',
+        appliedDate: '',
+        followUpDate: '',
+        contactName: '',
+        notes: '',
+        trackerUpdatedAt: null,
         savedAt:       new Date().toISOString()
       });
 

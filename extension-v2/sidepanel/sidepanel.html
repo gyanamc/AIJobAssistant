@@ -182,6 +182,18 @@
         </div>
       </div>
 
+      <!-- Actionable Insights -->
+      <div class="card section-card insights-section" id="insightsSection">
+        <div class="section-header" data-target="insightsBody">
+          <span class="section-icon">&#128161;</span>
+          <span class="section-title">Actionable Insights</span>
+          <span class="section-chevron">&#8963;</span>
+        </div>
+        <div class="section-body" id="insightsBody">
+          <div id="insightsContent"></div>
+        </div>
+      </div>
+
     </div><!-- /analysisView -->
 
     <!-- ACTIVITY LOG VIEW -->
@@ -232,7 +244,7 @@
                 <span class="provider-icon">&#10024;</span>
                 <div class="provider-info">
                   <span class="provider-name">Google Gemini</span>
-                  <span class="provider-model">Gemini 1.5 Flash</span>
+                  <span class="provider-model">Gemini 2.5 Flash</span>
                 </div>
               </div>
               <span class="provider-key-status" id="statusGemini"></span>
@@ -271,7 +283,7 @@
         </div>
         <p class="modal-hint" id="modalHint"></p>
         <input type="password" id="modalApiKeyInput" class="field-input" placeholder="Paste your API key...">
-        <small class="field-hint">Stored locally in your browser only. Never sent to our servers.</small>
+        <small class="field-hint">Stored locally and never sent to our servers. Sent directly to the selected provider only to authenticate requests you initiate.</small>
         <div class="modal-actions">
           <button class="modal-cancel-btn" id="modalCancel">Cancel</button>
           <button class="modal-save-btn" id="modalSaveKey">Save Key</button>
@@ -317,6 +329,112 @@
       </div>
     </div>
 
+    <!-- TRACKER VIEW -->
+    <div id="trackerView" class="hidden">
+      <div class="log-header-row">
+        <span class="log-title">Application Tracker</span>
+      </div>
+      <!-- Dashboard stats bar -->
+      <div class="tracker-stats" id="trackerStats"></div>
+      <!-- Search -->
+      <input type="text" class="tracker-search" id="trackerSearch" placeholder="&#128269; Search by title or company...">
+      <!-- Status filter buttons -->
+      <div class="tracker-filter-bar" id="trackerFilterBar">
+        <button class="tracker-filter-btn active" data-status="all">All</button>
+        <button class="tracker-filter-btn" data-status="Saved">Saved</button>
+        <button class="tracker-filter-btn" data-status="Planning to Apply">Planning</button>
+        <button class="tracker-filter-btn" data-status="Applied">Applied</button>
+        <button class="tracker-filter-btn" data-status="Assessment">Assessment</button>
+        <button class="tracker-filter-btn" data-status="Interview">Interview</button>
+        <button class="tracker-filter-btn" data-status="Offer">Offer</button>
+        <button class="tracker-filter-btn" data-status="Rejected">Rejected</button>
+        <button class="tracker-filter-btn" data-status="Withdrawn">Withdrawn</button>
+      </div>
+      <!-- Follow-up section -->
+      <div id="followUpSection" class="followup-section hidden">
+        <div class="followup-group hidden" id="followupOverdue">
+          <div class="followup-group-label">&#128308; Overdue Follow-ups</div>
+          <div class="followup-list" id="followupOverdueList"></div>
+        </div>
+        <div class="followup-group hidden" id="followupToday">
+          <div class="followup-group-label">&#128992; Due Today</div>
+          <div class="followup-list" id="followupTodayList"></div>
+        </div>
+        <div class="followup-group hidden" id="followupUpcoming">
+          <div class="followup-group-label">&#128994; Upcoming</div>
+          <div class="followup-list" id="followupUpcomingList"></div>
+        </div>
+      </div>
+      <!-- Job list -->
+      <div id="trackerList" class="tracker-list"></div>
+      <!-- Application detail modal -->
+      <div id="appDetailModal" class="app-detail-modal hidden">
+        <div class="app-detail-box">
+          <div class="app-detail-header">
+            <span class="app-detail-title" id="appDetailTitle">Application Details</span>
+            <button class="modal-close" id="appDetailClose">&#10005;</button>
+          </div>
+          <div class="settings-section">
+            <label class="field-label">Status</label>
+            <select class="field-select" id="appDetailStatus">
+              <option>Saved</option>
+              <option>Planning to Apply</option>
+              <option>Applied</option>
+              <option>Assessment</option>
+              <option>Interview</option>
+              <option>Offer</option>
+              <option>Rejected</option>
+              <option>Withdrawn</option>
+            </select>
+          </div>
+          <div class="settings-section">
+            <label class="field-label">Applied Date</label>
+            <input type="date" class="field-input" id="appDetailAppliedDate">
+          </div>
+          <div class="settings-section">
+            <label class="field-label">Follow-up Date</label>
+            <input type="date" class="field-input" id="appDetailFollowUpDate">
+          </div>
+          <div class="settings-section">
+            <label class="field-label">Contact Name</label>
+            <input type="text" class="field-input" id="appDetailContactName" placeholder="Recruiter / Hiring Manager">
+          </div>
+          <div class="settings-section">
+            <label class="field-label">Contact Email</label>
+            <input type="email" class="field-input" id="appDetailContactEmail" placeholder="contact@company.com">
+          </div>
+          <div class="settings-section">
+            <label class="field-label">Notes</label>
+            <textarea class="field-textarea" id="appDetailNotes" rows="3" placeholder="Interview notes, next steps..."></textarea>
+          </div>
+          <p class="field-hint" id="appDetailUpdatedAt">Last updated: Not yet updated</p>
+          <div class="modal-actions">
+            <button class="modal-cancel-btn" id="appDetailCancel">Cancel</button>
+            <button class="modal-save-btn" id="appDetailSave">Save</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- COMPARE VIEW -->
+    <div id="compareView" class="hidden">
+      <div class="log-header-row">
+        <span class="log-title">Job Comparison</span>
+        <button class="clear-btn" id="clearCompareBtn">Clear All</button>
+      </div>
+      <p class="field-hint" style="margin-bottom:8px">Select up to 3 saved jobs to compare side-by-side. Use the Compare button on any saved job.</p>
+      <!-- Compare slots -->
+      <div class="compare-slots" id="compareSlots">
+        <div class="compare-slot empty" id="compareSlot0"><span class="compare-slot-empty-text">Slot 1<br><small>Go to Saved to add</small></span></div>
+        <div class="compare-slot empty" id="compareSlot1"><span class="compare-slot-empty-text">Slot 2<br><small>Go to Saved to add</small></span></div>
+        <div class="compare-slot empty" id="compareSlot2"><span class="compare-slot-empty-text">Slot 3<br><small>Go to Saved to add</small></span></div>
+      </div>
+      <!-- Comparison table -->
+      <div class="comparison-table" id="comparisonTable">
+        <p class="empty-state">Select at least 2 jobs to see a comparison.</p>
+      </div>
+    </div>
+
   </main>
 
   <!-- LOADING OVERLAY -->
@@ -347,9 +465,19 @@
       <span class="nav-icon">&#128100;</span>
       <span class="nav-label">Profile</span>
     </button>
+    <button class="nav-btn" data-view="tracker" id="navTracker">
+      <span class="nav-icon">&#128203;</span>
+      <span class="nav-label">Tracker</span>
+    </button>
+    <button class="nav-btn" data-view="compare" id="navCompare">
+      <span class="nav-icon">&#9878;</span>
+      <span class="nav-label">Compare</span>
+    </button>
   </nav>
 
   <script src="../lib/policies.js"></script>
+  <script src="../lib/coverage.js"></script>
+  <script src="../lib/tracker.js"></script>
   <script src="sidepanel.js"></script>
 </body>
 </html>
