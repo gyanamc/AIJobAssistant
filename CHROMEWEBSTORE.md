@@ -90,7 +90,7 @@ Every permission listed below is required for the core functionality of the AI J
 ## Privacy Policy
 
 **Privacy Policy URL** [REQUIRED]
-https://gyanam.store/privacy-policy.html
+https://gyanamc.github.io/AIJobAssistant/privacy-policy.html
 
 ---
 
