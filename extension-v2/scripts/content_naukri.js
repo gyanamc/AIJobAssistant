@@ -1,4 +1,8 @@
 // content_naukri.js — AI Job Assistant v2
+//
+// Do NOT call chrome.runtime.getURL() or inject extension-hosted assets into
+// the page. Leaving web_accessible_resources undeclared avoids fingerprinting.
+
 (function () {
   if (window.__ajaNaukri) return;
   window.__ajaNaukri = true;
@@ -7,16 +11,36 @@
   let tickRunning = false;
 
   const seenIds = new Set();
-  chrome.storage.local.get(['processedJobIds'], ({ processedJobIds = [] }) => {
-    processedJobIds.forEach(id => seenIds.add(String(id)));
-  });
+
+  function isExtensionAlive() {
+    try {
+      return Boolean(chrome.runtime && chrome.runtime.id);
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function retireIfDead() {
+    if (isExtensionAlive()) return false;
+    stopLoop();
+    return true;
+  }
+
+  if (isExtensionAlive()) {
+    chrome.storage.local.get(['processedJobIds'], ({ processedJobIds = [] }) => {
+      if (chrome.runtime.lastError) return;
+      processedJobIds.forEach(id => seenIds.add(String(id)));
+    });
+  }
 
   function hasProcessed(id) { return seenIds.has(String(id)); }
   function markProcessed(id) {
+    if (!isExtensionAlive()) return;
     const key = String(id);
     if (seenIds.has(key)) return;
     seenIds.add(key);
     chrome.storage.local.get(['processedJobIds'], ({ processedJobIds = [] }) => {
+      if (chrome.runtime.lastError) return;
       if (!processedJobIds.includes(key)) {
         processedJobIds.push(key);
         if (processedJobIds.length > 2000) processedJobIds.splice(0, processedJobIds.length - 2000);
@@ -26,12 +50,14 @@
   }
 
   function extLog(msg) {
+    if (!isExtensionAlive()) return;
     chrome.runtime.sendMessage({ type: 'FORWARD_LOG', message: msg }).catch(() => {});
   }
 
   extLog('Naukri content script ready.');
 
   function startLoop() {
+    if (retireIfDead()) return;
     if (scrapeTimer) return;
     scrapeTimer = setInterval(safeTick, 4000);
     extLog('Naukri loop started.');
@@ -41,17 +67,21 @@
     clearInterval(scrapeTimer);
     scrapeTimer = null;
     tickRunning = false;
-    extLog('Naukri loop stopped.');
+    if (isExtensionAlive()) extLog('Naukri loop stopped.');
   }
 
   function safeTick() {
+    if (retireIfDead()) return;
     if (tickRunning) return;
     tickRunning = true;
     tick().finally(() => { tickRunning = false; });
   }
 
   async function tick() {
+    if (retireIfDead()) return;
+
     const { botRunning } = await getStorage(['botRunning']);
+    if (!isExtensionAlive()) return;
     if (!botRunning) { stopLoop(); return; }
 
     const cards = document.querySelectorAll('.srp-jobtuple-wrapper');
@@ -88,6 +118,7 @@
     extLog(`Evaluating: ${titleEl.innerText.trim().substring(0, 40)}...`);
 
     await new Promise(resolve => {
+      if (!isExtensionAlive()) { resolve(); return; }
       chrome.runtime.sendMessage({
         type: 'EVALUATE_JOB',
         data: {
@@ -103,7 +134,7 @@
           salary:       salaryEl?.innerText.trim() || ''
         }
       }, (res) => {
-        if (chrome.runtime.lastError) { resolve(); return; }
+        if (!isExtensionAlive() || chrome.runtime.lastError) { resolve(); return; }
         if (res?.success && res.evaluation?.is_match) {
           card.style.outline = '3px solid #00c853';
           card.style.background = '#00c85308';
@@ -122,11 +153,13 @@
   }
 
   chrome.runtime.onMessage.addListener((req) => {
+    if (retireIfDead()) return;
     if (req.type === 'START_SCRAPING') startLoop();
     if (req.type === 'STOP_SCRAPING')  stopLoop();
   });
 
   chrome.storage.local.get(['botRunning'], ({ botRunning }) => {
+    if (retireIfDead()) return;
     if (botRunning) startLoop();
   });
 
@@ -134,5 +167,17 @@
     const m = (text || '').match(/[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/);
     return m ? m[0] : '';
   }
-  function getStorage(keys) { return new Promise(r => chrome.storage.local.get(keys, r)); }
+  function getStorage(keys) {
+    return new Promise(r => {
+      if (!isExtensionAlive()) { r({}); return; }
+      try {
+        chrome.storage.local.get(keys, (result) => {
+          if (chrome.runtime.lastError) { r({}); return; }
+          r(result || {});
+        });
+      } catch (_) {
+        r({});
+      }
+    });
+  }
 })();

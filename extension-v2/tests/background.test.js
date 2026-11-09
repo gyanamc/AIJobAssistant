@@ -11,7 +11,17 @@ function loadBackground(fetchImpl = async () => ({ ok: true, status: 200, json: 
     sidePanel: { open() {} },
     runtime: {
       onMessage: { addListener() {} },
-      sendMessage: () => Promise.resolve()
+      sendMessage: () => Promise.resolve(),
+      lastError: null
+    },
+    tabs: {
+      query(_query, callback) {
+        if (callback) callback([]);
+        return Promise.resolve([]);
+      },
+      sendMessage() {
+        return Promise.resolve();
+      }
     },
     storage: {
       local: {
@@ -303,9 +313,13 @@ test('OpenAI and Gemini evaluation paths remain functional with mocked APIs', as
   assert.equal((await openai.evalWithOpenAI({ title: 'Engineer', description: 'Python' }, { apiKey: 'key', resumeSummary: 'Python' })).success, true);
 
   const gemini = loadBackground(async (url, options) => {
-    assert.match(url, /^https:\/\/generativelanguage\.googleapis\.com\/v1beta\/models\/gemini-2\.5-flash/);
+    assert.match(url, /^https:\/\/generativelanguage\.googleapis\.com\/v1beta\/models\/gemini-3\.8-flash/);
     assert.equal(options.headers['x-goog-api-key'], 'key');
     assert.doesNotMatch(url, /[?&]key=/, 'API key must not appear in the URL');
+    const body = JSON.parse(options.body);
+    assert.deepEqual(body.systemInstruction.parts.map(part => typeof part.text), ['string']);
+    assert.equal(body.generationConfig.responseMimeType, 'application/json');
+    assert.equal(body.generationConfig.temperature, undefined);
     return {
       ok: true,
       status: 200,
@@ -313,6 +327,16 @@ test('OpenAI and Gemini evaluation paths remain functional with mocked APIs', as
     };
   });
   assert.equal((await gemini.evalWithGeminiAPI({ title: 'Engineer', description: 'Python' }, { apiKey: 'key', resumeSummary: 'Python' })).success, true);
+});
+
+test('Gemini shared generation uses the documented request shape', async () => {
+  const gemini = loadBackground(async (url, options) => {
+    assert.match(url, /gemini-3\.8-flash:generateContent$/);
+    assert.equal(options.headers['x-goog-api-key'], 'key');
+    assert.deepEqual(JSON.parse(options.body).contents, [{ parts: [{ text: 'Cover letter prompt' }] }]);
+    return { ok: true, status: 200, json: async () => ({ candidates: [{ content: { parts: [{ text: 'Generated text' }] } }] }) };
+  });
+  assert.equal(await gemini.callLLM({ aiModel: 'gemini_api', apiKey: 'key' }, 'Cover letter prompt'), 'Generated text');
 });
 
 test('successful evaluated matches auto-save coverage metadata', async () => {

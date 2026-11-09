@@ -40,12 +40,30 @@ chrome.action.onClicked.addListener((tab) => {
   chrome.sidePanel.open({ tabId: tab.id });
 });
 
+// Notify content scripts on LinkedIn/Naukri tabs to start/stop scraping.
+// Content scripts never call chrome.runtime.getURL() / fetch extension assets —
+// LinkedIn's page itself probes thousands of chrome-extension:// IDs and Chrome
+// rewrites misses as chrome-extension://invalid/ (not caused by this extension).
+function broadcastScrapingState(running) {
+  const type = running ? 'START_SCRAPING' : 'STOP_SCRAPING';
+  chrome.tabs.query({ url: ['*://*.linkedin.com/*', '*://*.naukri.com/*'] }, (tabs) => {
+    if (chrome.runtime.lastError) return;
+    for (const tab of tabs || []) {
+      if (!tab.id) continue;
+      chrome.tabs.sendMessage(tab.id, { type }).catch(() => {});
+    }
+  });
+}
+
 // ── Message Router ────────────────────────────────────────────────────────
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
   if (request.type === 'TOGGLE_BOT') {
     chrome.storage.local.set({ botRunning: request.state });
     log(`Bot ${request.state ? 'started' : 'stopped'}.`);
+    // Tell open LinkedIn/Naukri tabs immediately — storage alone only helps
+    // on the next tick / reinjection after SPA navigation.
+    broadcastScrapingState(request.state);
     sendResponse({ success: true });
     return true;
   }
@@ -436,7 +454,7 @@ async function evalWithGeminiAPI(jobData, storage) {
   if (!storage.apiKey) { log('ERROR: No Gemini API key set.'); return { success: false, error: 'Missing API key' }; }
   try {
     const res = await fetch(
-      'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent',
+      'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent',
       {
         method: 'POST',
         headers: {
@@ -444,9 +462,9 @@ async function evalWithGeminiAPI(jobData, storage) {
           'x-goog-api-key': storage.apiKey
         },
         body: JSON.stringify({
-          system_instruction: { parts: { text: buildSystemPrompt() } },
+          systemInstruction: { parts: [{ text: buildSystemPrompt() }] },
           contents: [{ parts: [{ text: buildUserPrompt(jobData, storage) }] }],
-          generationConfig: { response_mime_type: 'application/json', temperature: 0.3 }
+          generationConfig: { responseMimeType: 'application/json' }
         })
       }
     );
@@ -561,7 +579,7 @@ async function callLLM(storage, prompt) {
     return data.choices[0].message.content;
   }
   if (model === 'gemini_api' && storage.apiKey) {
-    const res = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent', {
+    const res = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -632,8 +650,9 @@ function _doSave(jobData, evaluation) {
 
       // Deduplicate only by job ID or exact URL — title+company is too aggressive
       const isDuplicate = saved.some(j =>
-        (jobData.id  && j.id  && j.id  === String(jobData.id)) ||
-        (jobData.url && j.url && j.url === jobData.url)
+        (jobData.id && j.id && String(j.id) === String(jobData.id)) ||
+        (jobData.url && (j.url === jobData.url || j.applyUrl === jobData.url)) ||
+        (jobData.applyUrl && (j.url === jobData.applyUrl || j.applyUrl === jobData.applyUrl))
       );
 
       if (isDuplicate) {

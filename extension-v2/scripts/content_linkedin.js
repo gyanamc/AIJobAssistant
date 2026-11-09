@@ -5,6 +5,12 @@
 // only stable context that survives SPA navigations and re-injections.
 // The content script simply finds the next unprocessed-looking card, clicks it,
 // extracts data, and sends it. The background deduplicates by job ID.
+//
+// NOTE: Do NOT call chrome.runtime.getURL() or inject <script>/<img> from
+// extension URLs into LinkedIn. That would require web_accessible_resources and
+// make this extension fingerprintable by LinkedIn's AedEvent probes. Console
+// floods of `GET chrome-extension://invalid/ net::ERR_FAILED` on LinkedIn are
+// LinkedIn probing other extension IDs — Chrome hides the real ID as "invalid".
 
 (function () {
   // Prevent multiple intervals if Chrome injects this script more than once
@@ -15,7 +21,24 @@
   let scrapeTimer = null;
   let tickRunning = false;
 
+  // After extension reload/update, orphaned content scripts lose chrome.runtime.id.
+  // Stop all work instead of hammering a dead messaging channel.
+  function isExtensionAlive() {
+    try {
+      return Boolean(chrome.runtime && chrome.runtime.id);
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function retireIfDead() {
+    if (isExtensionAlive()) return false;
+    stopLoop();
+    return true;
+  }
+
   function extLog(msg) {
+    if (!isExtensionAlive()) return;
     chrome.runtime.sendMessage({ type: 'FORWARD_LOG', message: msg }).catch(() => {});
   }
 
@@ -23,6 +46,7 @@
 
   // ── Loop control ──────────────────────────────────────────────────────────
   function startLoop() {
+    if (retireIfDead()) return;
     if (scrapeTimer) return;
     scrapeTimer = setInterval(safeTick, 6000);
     extLog('LinkedIn loop started.');
@@ -35,6 +59,7 @@
   }
 
   function safeTick() {
+    if (retireIfDead()) return;
     if (tickRunning) return;
     tickRunning = true;
     tick().finally(() => { tickRunning = false; });
@@ -42,7 +67,10 @@
 
   // ── Main tick ─────────────────────────────────────────────────────────────
   async function tick() {
+    if (retireIfDead()) return;
+
     const { botRunning } = await getStorage(['botRunning']);
+    if (!isExtensionAlive()) return;
     if (!botRunning) { stopLoop(); return; }
 
     // Find all job cards on the page
@@ -71,6 +99,7 @@
     card.scrollIntoView({ behavior: 'smooth', block: 'center' });
     card.click();
     await sleep(1500);
+    if (retireIfDead()) return;
 
     const title    = getText(['.job-details-jobs-unified-top-card__job-title', 'h1.t-24', '.jobs-unified-top-card__job-title']);
     const company  = getText(['.job-details-jobs-unified-top-card__company-name a', '.jobs-unified-top-card__company-name']);
@@ -92,6 +121,7 @@
     extLog(`Evaluating: ${title.substring(0, 40)}...`);
 
     await new Promise(resolve => {
+      if (!isExtensionAlive()) { resolve(); return; }
       chrome.runtime.sendMessage({
         type: 'EVALUATE_JOB',
         data: {
@@ -101,8 +131,8 @@
           location: location || '', jobType: jobType || 'Full-time', salary: salary || ''
         }
       }, (res) => {
-        if (chrome.runtime.lastError) {
-          card.style.outline = '2px solid #5a5e75';
+        if (!isExtensionAlive() || chrome.runtime.lastError) {
+          if (isExtensionAlive()) card.style.outline = '2px solid #5a5e75';
           resolve(); return;
         }
         if (res?.success && res.evaluation?.is_match) {
@@ -128,11 +158,13 @@
 
   // ── Message listener ──────────────────────────────────────────────────────
   chrome.runtime.onMessage.addListener((req) => {
+    if (retireIfDead()) return;
     if (req.type === 'START_SCRAPING') startLoop();
     if (req.type === 'STOP_SCRAPING')  stopLoop();
   });
 
   chrome.storage.local.get(['botRunning'], ({ botRunning }) => {
+    if (retireIfDead()) return;
     if (botRunning) startLoop();
   });
 
@@ -153,5 +185,17 @@
     if (l) l.scrollTop += 800; else window.scrollBy(0, 800);
   }
   function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
-  function getStorage(keys) { return new Promise(r => chrome.storage.local.get(keys, r)); }
+  function getStorage(keys) {
+    return new Promise(r => {
+      if (!isExtensionAlive()) { r({}); return; }
+      try {
+        chrome.storage.local.get(keys, (result) => {
+          if (chrome.runtime.lastError) { r({}); return; }
+          r(result || {});
+        });
+      } catch (_) {
+        r({});
+      }
+    });
+  }
 })();
