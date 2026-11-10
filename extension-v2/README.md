@@ -9,7 +9,7 @@
 - Legacy saved jobs are migrated in place with tracker defaults while IDs, URLs, evaluation data, and CSV compatibility are preserved. Save refreshes retain tracker fields.
 - CSV export adds status, application date, follow-up date, contact name/email, and notes with RFC-style quote/newline escaping.
 - BYOK keys remain local at rest and are never sent to the AI Job Assistant backend; user-initiated requests transmit them directly to the selected provider for authentication.
-- Gemini uses the documented `x-goog-api-key` header and active `gemini-2.5-flash` generateContent endpoint. No new Chrome permissions were added.
+- Gemini uses the documented `x-goog-api-key` header and active `gemini-3.8-flash` generateContent endpoint. No new Chrome permissions were added.
 - Packaging: run `python3 scripts/build_zip.py` from the repository root. It produces and validates `dist/AIJobAssistant-v2.1.0.zip` with `manifest.json` at the archive root.
 
 Known limitations: reminders are in-extension only; comparison selection lasts for the current side-panel session; headless MV3 smoke testing verifies service-worker startup and side-panel resource resolution but not visible native side-panel interaction.

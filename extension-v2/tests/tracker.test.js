@@ -35,7 +35,16 @@ function resetStorage(initial = {}) {
 }
 
 const TrackerLib = require(path.join(__dirname, '..', 'lib', 'tracker.js'));
-const { migrateRecord, mergeTrackerFields, calculateStats, localDateString, updateTrackerFields, APPLICATION_STATUSES, csvCell, buildSavedJobsCsv } = TrackerLib;
+const { migrateRecord, mergeTrackerFields, calculateStats, localDateString, updateTrackerFields, APPLICATION_STATUSES, csvCell, buildSavedJobsCsv, sameJob } = TrackerLib;
+
+test('manual and automatic saves identify the same listing across URL fields', () => {
+  const tracked = { id: '123', url: 'https://jobs.example/listing', applyUrl: 'https://jobs.example/apply', applicationStatus: 'Interview', notes: 'Keep me' };
+  assert.equal(sameJob(tracked, { url: tracked.url }), true);
+  assert.equal(sameJob(tracked, { url: tracked.applyUrl }), true);
+  assert.equal(sameJob(tracked, { id: '123', url: 'https://other.example' }), true);
+  assert.equal(sameJob(tracked, { id: '456', url: 'https://other.example' }), false);
+  assert.equal(mergeTrackerFields({ ...tracked, title: 'Updated' }, tracked).notes, 'Keep me');
+});
 
 // ---------------------------------------------------------------------------
 // migrateRecord()
@@ -208,5 +217,13 @@ test('CSV export includes tracker fields and safely preserves newlines', () => {
   assert.match(csv, /"Interview"/);
   assert.match(csv, /"First line\nSecond ""quoted"" line"/);
   assert.doesNotMatch(csv, /apiKey|sk-[A-Za-z0-9]/i);
+});
+
+test('CSV neutralizes formula leading text while retaining numbers and dates', () => {
+  for (const value of ['=1+1', '+SUM(1)', '-cmd', '@formula', '  =1', '\n@formula']) {
+    assert.equal(csvCell(value), `"'${value}"`);
+  }
+  assert.equal(csvCell(42), '"42"');
+  assert.equal(csvCell('2026-11-08'), '"2026-11-08"');
 });
 

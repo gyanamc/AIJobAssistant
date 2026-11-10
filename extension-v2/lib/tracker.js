@@ -16,6 +16,11 @@
     'Rejected',
     'Withdrawn'
   ];
+  function sameJob(a, b) {
+    return Boolean((a.id && b.id && String(a.id) === String(b.id)) ||
+      (a.url && (a.url === b.url || a.url === b.applyUrl)) ||
+      (a.applyUrl && (a.applyUrl === b.url || a.applyUrl === b.applyUrl)));
+  }
   let storageUpdateQueue = Promise.resolve();
 
   /**
@@ -91,7 +96,9 @@
   ];
 
   function csvCell(value) {
-    return `"${String(value ?? '').replace(/"/g, '""')}"`;
+    let text = String(value ?? '');
+    if (typeof value === 'string' && /^[\s\uFEFF]*[=+@-]/.test(text)) text = `'${text}`;
+    return `"${text.replace(/"/g, '""')}"`;
   }
 
   function buildSavedJobsCsv(savedJobs, locale = 'en-IN') {
@@ -151,6 +158,7 @@
   }
 
   exports.APPLICATION_STATUSES = APPLICATION_STATUSES;
+  exports.sameJob             = sameJob;
   exports.mergeTrackerFields   = mergeTrackerFields;
   exports.migrateRecord        = migrateRecord;
   exports.calculateStats       = calculateStats;

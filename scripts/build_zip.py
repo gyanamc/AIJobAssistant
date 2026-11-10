@@ -26,6 +26,7 @@ import zipfile
 import tempfile
 import shutil
 import re
+import struct
 from pathlib import Path
 
 # ── Configuration ──────────────────────────────────────────────────────────────
@@ -77,9 +78,10 @@ REQUIRED_FILES = [
 
 # Pattern to detect possible secrets (simple heuristic — not a full secrets scanner)
 SECRET_PATTERNS = [
-    re.compile(r'sk-[A-Za-z0-9]{20,}'),          # OpenAI-style keys
-    re.compile(r'AIza[A-Za-z0-9_\-]{35}'),        # Google API keys
-    re.compile(r'[A-Za-z0-9]{32,}'),              # Long random tokens (checked in context)
+    re.compile(rb'\bsk-(?:proj-)?[A-Za-z0-9_-]{20,}\b'),
+    re.compile(rb'\bsk-ant-[A-Za-z0-9_-]{20,}\b'),
+    re.compile(rb'\bAIza[A-Za-z0-9_-]{35}\b'),
+    re.compile(rb'-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----'),
 ]
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
@@ -111,16 +113,12 @@ def collect_files(base: Path):
 
 
 def check_for_secrets(abs_path: Path, archive_name: str):
-    """Warn if file looks like it contains embedded secrets."""
+    """Reject credential-shaped content without displaying its value."""
     if abs_path.suffix in {".png", ".jpg", ".jpeg", ".gif", ".ico", ".woff", ".woff2"}:
         return  # Binary files — skip
-    try:
-        content = abs_path.read_text(encoding="utf-8", errors="replace")
-    except Exception:
-        return
-    # Only flag very specific patterns that are almost certainly keys
-    if re.search(r'\bsk-[A-Za-z0-9]{32,}\b', content):
-        print(f"  ⚠️  POSSIBLE SECRET in {archive_name} — review before publishing!", file=sys.stderr)
+    content = abs_path.read_bytes()
+    if any(pattern.search(content) for pattern in SECRET_PATTERNS):
+        raise ValueError(f"Possible secret detected in {archive_name}; packaging stopped.")
 
 
 # ── Main ───────────────────────────────────────────────────────────────────────
@@ -149,12 +147,20 @@ def main():
         print(f"ERROR: Expected Manifest V3, found {mv}", file=sys.stderr)
         sys.exit(1)
 
+    for icon_size in (16, 48, 128):
+        icon_name = f"icons/icon{icon_size}.png"
+        icon_path = EXTENSION_DIR / icon_name
+        raw = icon_path.read_bytes()
+        if raw[:8] != b"\x89PNG\r\n\x1a\n" or raw[12:16] != b"IHDR" or struct.unpack(">II", raw[16:24]) != (icon_size, icon_size):
+            print(f"ERROR: {icon_name} is not a valid {icon_size}x{icon_size} PNG", file=sys.stderr)
+            sys.exit(1)
+        if manifest.get('icons', {}).get(str(icon_size)) != icon_name or manifest.get('action', {}).get('default_icon', {}).get(str(icon_size)) != icon_name:
+            print(f"ERROR: manifest icon reference mismatch for {icon_name}", file=sys.stderr)
+            sys.exit(1)
+
     # 2. Prepare dist dir
     DIST_DIR.mkdir(parents=True, exist_ok=True)
     zip_path = DIST_DIR / f"AIJobAssistant-v{version}.zip"
-    if zip_path.exists():
-        zip_path.unlink()
-        print(f"  Removed previous {zip_path.name}")
 
     # 3. Collect files
     files = list(collect_files(EXTENSION_DIR))
@@ -164,8 +170,12 @@ def main():
 
     # 4. Secret scan
     print("\nScanning for secrets...")
-    for abs_path, archive_name in files:
-        check_for_secrets(abs_path, archive_name)
+    try:
+        for abs_path, archive_name in files:
+            check_for_secrets(abs_path, archive_name)
+    except ValueError as error:
+        print(f"ERROR: {error}", file=sys.stderr)
+        sys.exit(1)
     print("  Scan complete (no embedded API keys found in JS/CSS/HTML files).")
 
     # 5. Write ZIP (manifest.json at archive root)
@@ -181,6 +191,10 @@ def main():
     print("\nVerifying required files in archive...")
     with zipfile.ZipFile(zip_path, "r") as zf:
         archive_names = set(zf.namelist())
+        for member_name in archive_names:
+            if any(pattern.search(zf.read(member_name)) for pattern in SECRET_PATTERNS):
+                print(f"ERROR: Possible secret in ZIP member {member_name}", file=sys.stderr)
+                sys.exit(1)
 
     missing = []
     for req in REQUIRED_FILES:

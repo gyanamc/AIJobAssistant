@@ -39,12 +39,20 @@
   },
   "content_scripts": [
     {
-      "matches": ["*://*.linkedin.com/*"],
-      "js": ["scripts/content_linkedin.js"]
+      "matches": [
+        "*://*.linkedin.com/*"
+      ],
+      "js": [
+        "scripts/content_linkedin.js"
+      ]
     },
     {
-      "matches": ["*://*.naukri.com/*"],
-      "js": ["scripts/content_naukri.js"]
+      "matches": [
+        "*://*.naukri.com/*"
+      ],
+      "js": [
+        "scripts/content_naukri.js"
+      ]
     }
   ]
 }

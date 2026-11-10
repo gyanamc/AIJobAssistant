@@ -117,7 +117,9 @@ document.addEventListener('DOMContentLoaded', () => {
             try {
               const parsed = new URL(url);
               if (parsed.hostname.includes('linkedin.com') && roles) {
-                const searchUrl = `https://www.linkedin.com/jobs/search/?keywords=${encodeURIComponent(roles)}&location=${encodeURIComponent(location)}`;
+                // LinkedIn redirects classic /jobs/search/ to the SDUI
+                // /jobs/search-results/ experience; open that URL directly.
+                const searchUrl = `https://www.linkedin.com/jobs/search-results/?keywords=${encodeURIComponent(roles)}&location=${encodeURIComponent(location)}`;
                 if (!url.includes(encodeURIComponent(roles))) {
                   chrome.tabs.update(tabs[0].id, { url: searchUrl });
                 }
@@ -486,10 +488,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const saved = data.savedJobs || [];
 
         // Update existing entry or prepend new one
-        const existingIdx = saved.findIndex(j =>
-          (currentJob.id && j.id && j.id === String(currentJob.id)) ||
-          (applyUrl && j.url && j.url === applyUrl)
-        );
+        const existingIdx = saved.findIndex(j => TrackerLib.sameJob(j, currentJob));
 
         const entry = {
           id:            String(currentJob.id  || ''),
@@ -706,7 +705,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // (auto-save already happened in background for matches)
     chrome.storage.local.get(['savedJobs'], (data) => {
       const saved = data.savedJobs || [];
-      const exists = saved.find(j => j.url === (jobResult.applyUrl || jobResult.url));
+      const exists = saved.find(j => TrackerLib.sameJob(j, jobResult));
       if (!exists) {
         // Manually saved job (e.g. non-match the user wants to keep)
         saved.unshift(TrackerLib.mergeTrackerFields({
