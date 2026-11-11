@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "AI Job Assistant",
-  "version": "2.0.6",
+  "version": "2.1.0",
   "description": "AI-powered job matcher for LinkedIn and Naukri. Auto-evaluates jobs against your resume. Free to use.",
   "permissions": [
     "storage",
@@ -39,12 +39,20 @@
   },
   "content_scripts": [
     {
-      "matches": ["*://*.linkedin.com/*"],
-      "js": ["scripts/content_linkedin.js"]
+      "matches": [
+        "*://*.linkedin.com/*"
+      ],
+      "js": [
+        "scripts/content_linkedin.js"
+      ]
     },
     {
-      "matches": ["*://*.naukri.com/*"],
-      "js": ["scripts/content_naukri.js"]
+      "matches": [
+        "*://*.naukri.com/*"
+      ],
+      "js": [
+        "scripts/content_naukri.js"
+      ]
     }
   ]
 }

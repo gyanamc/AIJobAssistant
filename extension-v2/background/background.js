@@ -5,6 +5,8 @@ console.log('AI Job Assistant v2 background worker started.');
 // ── Constants ─────────────────────────────────────────────────────────────
 const DEFAULT_OLLAMA_URL  = 'https://aijobassistant-production.up.railway.app';
 const DEFAULT_OLLAMA_MODEL = 'llama3.2:1b';
+const ANTHROPIC_MODEL = 'claude-sonnet-5';
+const ANTHROPIC_API_VERSION = '2026-10-21';
 // Background is the only stable context across SPA navigations.
 // Content scripts get re-injected on every URL change — this Set prevents
 // the same job from being evaluated more than once per session.
@@ -15,10 +17,43 @@ chrome.storage.local.get(['botRunning'], (data) => {
   if (data.botRunning) log('Bot resumed from previous session.');
 });
 
+// Add tracker defaults to historical saved jobs once, preserving IDs, URLs,
+// scores, notes, and every other existing field.
+chrome.storage.local.get(['savedJobs'], (data) => {
+  const jobs = Array.isArray(data.savedJobs) ? data.savedJobs : [];
+  let changed = false;
+  const migrated = jobs.map(job => {
+    if (job.applicationStatus !== undefined) return job;
+    changed = true;
+    return {
+      ...job,
+      applicationStatus: 'Saved', appliedDate: '', followUpDate: '',
+      contactName: '', contactEmail: job.contactEmail || '', notes: '',
+      trackerUpdatedAt: null
+    };
+  });
+  if (changed) chrome.storage.local.set({ savedJobs: migrated });
+});
+
 // Open side panel when extension icon is clicked
 chrome.action.onClicked.addListener((tab) => {
   chrome.sidePanel.open({ tabId: tab.id });
 });
+
+// Notify content scripts on LinkedIn/Naukri tabs to start/stop scraping.
+// Content scripts never call chrome.runtime.getURL() / fetch extension assets —
+// LinkedIn's page itself probes thousands of chrome-extension:// IDs and Chrome
+// rewrites misses as chrome-extension://invalid/ (not caused by this extension).
+function broadcastScrapingState(running) {
+  const type = running ? 'START_SCRAPING' : 'STOP_SCRAPING';
+  chrome.tabs.query({ url: ['*://*.linkedin.com/*', '*://*.naukri.com/*'] }, (tabs) => {
+    if (chrome.runtime.lastError) return;
+    for (const tab of tabs || []) {
+      if (!tab.id) continue;
+      chrome.tabs.sendMessage(tab.id, { type }).catch(() => {});
+    }
+  });
+}
 
 // ── Message Router ────────────────────────────────────────────────────────
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
@@ -26,6 +61,9 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.type === 'TOGGLE_BOT') {
     chrome.storage.local.set({ botRunning: request.state });
     log(`Bot ${request.state ? 'started' : 'stopped'}.`);
+    // Tell open LinkedIn/Naukri tabs immediately — storage alone only helps
+    // on the next tick / reinjection after SPA navigation.
+    broadcastScrapingState(request.state);
     sendResponse({ success: true });
     return true;
   }
@@ -115,8 +153,13 @@ async function evaluateJob(jobData) {
 
   const evaluation = enrichEvaluation(rawResult.evaluation, jobData, storage);
 
-  // Normalise is_match — LLMs sometimes return string "true" or 1
-  evaluation.is_match = evaluation.is_match === true || evaluation.is_match === 'true' || evaluation.is_match === 1;
+  // Prefer the deterministic evidence score when it is available. Fall back to
+  // the model decision only when the extension cannot calculate a score.
+  evaluation.is_match = resolveMatchClassification(
+    evaluation.is_match,
+    evaluation.score,
+    evaluation.scoreCoverage
+  );
 
   if (evaluation.is_match) {
     log(`Match confirmed — saving: ${jobData.title}`);
@@ -130,38 +173,151 @@ async function evaluateJob(jobData) {
 
 // ── Enrichment ────────────────────────────────────────────────────────────
 function enrichEvaluation(raw, jobData, storage) {
-  const userSkills = (storage.resumeSummary || '')
-    .split(/[\n,]+/).map(s => s.trim()).filter(s => s.length > 2 && s.length < 30);
-
-  const desc = (jobData.description || '').toLowerCase();
-  const matchedSkills = userSkills.filter(s => desc.includes(s.toLowerCase()));
-  const missingSkills = [];
-
-  const commonSkills = ['Python', 'LangChain', 'LangGraph', 'RAG', 'AWS', 'Docker',
+  const resumeText = String(storage.resumeSummary || '').trim();
+  const description = String(jobData.description || '').trim();
+  const resumeLower = resumeText.toLowerCase();
+  const descLower = description.toLowerCase();
+  const commonSkills = ['Python', 'Java', 'JavaScript', 'LangChain', 'LangGraph', 'RAG', 'AWS', 'Azure', 'GCP', 'Docker',
     'Kubernetes', 'SQL', 'Machine Learning', 'Deep Learning', 'TensorFlow', 'PyTorch',
     'n8n', 'Airflow', 'MLflow', 'FastAPI', 'React', 'Node.js', 'TypeScript'];
+  const skillsAssessment = normalizeAssessmentItems(raw.skills_assessment, []);
+  const jobSkills = skillsAssessment.length
+    ? skillsAssessment.map(item => item.text)
+    : commonSkills.filter(skill => descLower.includes(skill.toLowerCase()));
+  const skillHasEvidence = item => typeof item.matched === 'boolean'
+    ? item.matched
+    : resumeLower.includes(item.text.toLowerCase());
+  const matchedSkills = skillsAssessment.length
+    ? skillsAssessment.filter(skillHasEvidence).map(item => item.text)
+    : jobSkills.filter(skill => resumeLower.includes(skill.toLowerCase()));
+  const missingSkills = skillsAssessment.length
+    ? skillsAssessment.filter(item => !skillHasEvidence(item)).map(item => item.text)
+    : jobSkills.filter(skill => !resumeLower.includes(skill.toLowerCase()));
 
-  commonSkills.forEach(skill => {
-    if (desc.includes(skill.toLowerCase()) && !matchedSkills.includes(skill)) {
-      missingSkills.push(skill);
-    }
-  });
+  const requirements = normalizeAssessmentItems(
+    raw.requirements_assessment || raw.requirements,
+    extractBulletPoints(description, 'require').slice(0, 6)
+  );
+  const responsibilities = normalizeAssessmentItems(
+    raw.responsibilities_assessment || raw.responsibilities,
+    extractBulletPoints(description, 'responsib').slice(0, 6)
+  );
 
-  const skillsScore = matchedSkills.length && (matchedSkills.length + missingSkills.length)
-    ? Math.round((matchedSkills.length / (matchedSkills.length + missingSkills.length)) * 100)
-    : raw.is_match ? 80 : 40;
-
-  const reqsScore = raw.is_match ? Math.floor(Math.random() * 15) + 82 : Math.floor(Math.random() * 20) + 30;
-  const respScore = raw.is_match ? Math.floor(Math.random() * 15) + 80 : Math.floor(Math.random() * 20) + 35;
-  const score     = Math.round((skillsScore + reqsScore + respScore) / 3);
+  const skillsScore = skillsAssessment.length
+    ? scoreAssessmentItems(skillsAssessment, resumeText)
+    : resumeText && jobSkills.length
+      ? Math.round((matchedSkills.length / jobSkills.length) * 100)
+      : null;
+  const reqsScore = scoreAssessmentItems(requirements, resumeText);
+  const respScore = scoreAssessmentItems(responsibilities, resumeText);
+  const score = weightedAvailableScore([
+    { value: skillsScore, weight: 0.40 },
+    { value: reqsScore, weight: 0.35 },
+    { value: respScore, weight: 0.25 }
+  ]);
+  const scoreCoverage = buildScoreCoverage({ skillsScore, reqsScore, respScore });
+  const availableDimensions = scoreCoverage.assessedDimensions;
+  const scoreExplanation = score === null
+    ? 'Compatibility score unavailable: add a resume summary and ensure the job description includes assessable skills, requirements, or responsibilities.'
+    : `${scoreCoverage.status === 'full' ? 'Full' : 'Partial'} evidence-based compatibility from ${availableDimensions} of 3 dimensions (skills 40%, requirements 35%, responsibilities 25%; available weights are normalized and unavailable dimensions are excluded).`;
 
   return {
     ...raw, score, skillsScore, reqsScore, respScore,
     matchedSkills:    matchedSkills.slice(0, 15),
     missingSkills:    missingSkills.slice(0, 5),
-    requirements:     extractBulletPoints(jobData.description, 'require').slice(0, 6),
-    responsibilities: extractBulletPoints(jobData.description, 'responsib').slice(0, 6)
+    requirements,
+    responsibilities,
+    scoreExplanation,
+    scoreCoverage
   };
+}
+
+function buildScoreCoverage({ skillsScore, reqsScore, respScore }) {
+  const availability = {
+    skills: Number.isFinite(skillsScore),
+    requirements: Number.isFinite(reqsScore),
+    responsibilities: Number.isFinite(respScore)
+  };
+  const availableDimensions = Object.entries(availability)
+    .filter(([, available]) => available)
+    .map(([name]) => name);
+  const assessedDimensions = availableDimensions.length;
+  return {
+    availability,
+    availableDimensions,
+    assessedDimensions,
+    totalDimensions: 3,
+    coveragePercentage: Math.round((assessedDimensions / 3) * 100),
+    status: assessedDimensions === 3 ? 'full' : assessedDimensions > 0 ? 'partial' : 'unavailable',
+    minimumDimensionsForClassification: 2,
+    meetsClassificationThreshold: assessedDimensions >= 2
+  };
+}
+
+function resolveMatchClassification(modelValue, score, coverage) {
+  const modelMatch = modelValue === true || modelValue === 'true' || modelValue === 1;
+  return coverage?.meetsClassificationThreshold && Number.isFinite(score)
+    ? score >= 60
+    : modelMatch;
+}
+
+function normalizeAssessmentItems(items, fallback) {
+  const source = Array.isArray(items) && items.length ? items : fallback;
+  return (Array.isArray(source) ? source : []).map(item => {
+    if (typeof item === 'string') {
+      return { text: item, priority: guessPriority(item), matched: null };
+    }
+    const text = String(item?.text || item?.requirement || item?.responsibility || '').trim();
+    const matched = typeof item?.matched === 'boolean' ? item.matched : null;
+    return {
+      text,
+      priority: normalizePriority(item?.priority || guessPriority(text)),
+      matched
+    };
+  }).filter(item => item.text);
+}
+
+function normalizePriority(priority) {
+  return ['critical', 'important', 'excellent'].includes(priority) ? priority : 'important';
+}
+
+function scoreAssessmentItems(items, resumeText) {
+  if (!resumeText || !Array.isArray(items) || !items.length) return null;
+  const resumeTokens = meaningfulTokens(resumeText);
+  if (!resumeTokens.size) return null;
+
+  let earned = 0;
+  let possible = 0;
+  for (const item of items) {
+    const weight = item.priority === 'critical' ? 2 : item.priority === 'excellent' ? 0.5 : 1;
+    const evidence = typeof item.matched === 'boolean'
+      ? item.matched
+      : hasTextualEvidence(item.text, resumeTokens);
+    possible += weight;
+    if (evidence) earned += weight;
+  }
+  return possible ? Math.round((earned / possible) * 100) : null;
+}
+
+function meaningfulTokens(text) {
+  const stopWords = new Set(['and', 'the', 'with', 'for', 'from', 'that', 'this', 'will', 'your', 'you', 'are', 'our', 'have', 'has', 'job', 'role', 'work', 'using', 'years', 'year']);
+  return new Set(String(text || '').toLowerCase().match(/[a-z0-9+#.]{3,}/g)?.filter(token => !stopWords.has(token)) || []);
+}
+
+function hasTextualEvidence(text, resumeTokens) {
+  const itemTokens = [...meaningfulTokens(text)];
+  if (!itemTokens.length) return false;
+  const matches = itemTokens.filter(token => resumeTokens.has(token)).length;
+  const requiredMatches = itemTokens.length <= 3 ? 1 : Math.min(3, Math.ceil(itemTokens.length * 0.25));
+  return matches >= requiredMatches;
+}
+
+function weightedAvailableScore(parts) {
+  const available = parts.filter(part => Number.isFinite(part.value));
+  if (!available.length) return null;
+  const totalWeight = available.reduce((sum, part) => sum + part.weight, 0);
+  const score = Math.round(available.reduce((sum, part) => sum + part.value * part.weight, 0) / totalWeight);
+  return Math.min(100, Math.max(0, score));
 }
 
 function extractBulletPoints(description, keyword) {
@@ -178,9 +334,12 @@ function extractBulletPoints(description, keyword) {
     if (inSection && /^[A-Z][a-z]+ [A-Z]/.test(line) && results.length > 0) break;
   }
   if (!results.length) {
-    lines.slice(0, 8).forEach(line => {
+    const signals = keyword.startsWith('require')
+      ? ['required', 'requirement', 'must have', 'essential', 'preferred', 'nice to have']
+      : ['responsible', 'responsibility', 'duties', 'you will', "you'll"];
+    lines.filter(line => signals.some(signal => line.toLowerCase().includes(signal))).slice(0, 8).forEach(line => {
       const clean = line.replace(/^[-•*·]\s*/, '');
-      if (clean.length > 20) results.push({ text: clean, priority: guessPriority(clean) });
+      results.push({ text: clean, priority: guessPriority(clean), matched: null });
     });
   }
   return results;
@@ -295,14 +454,17 @@ async function evalWithGeminiAPI(jobData, storage) {
   if (!storage.apiKey) { log('ERROR: No Gemini API key set.'); return { success: false, error: 'Missing API key' }; }
   try {
     const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${storage.apiKey}`,
+      'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent',
       {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'x-goog-api-key': storage.apiKey
+        },
         body: JSON.stringify({
-          system_instruction: { parts: { text: buildSystemPrompt() } },
+          systemInstruction: { parts: [{ text: buildSystemPrompt() }] },
           contents: [{ parts: [{ text: buildUserPrompt(jobData, storage) }] }],
-          generationConfig: { response_mime_type: 'application/json', temperature: 0.3 }
+          generationConfig: { responseMimeType: 'application/json' }
         })
       }
     );
@@ -319,23 +481,12 @@ async function evalWithGeminiAPI(jobData, storage) {
 async function evalWithAnthropic(jobData, storage) {
   if (!storage.apiKey) { log('ERROR: No Anthropic API key set.'); return { success: false, error: 'Missing API key' }; }
   try {
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'x-api-key': storage.apiKey,
-        'anthropic-version': '2023-06-01',
-        'anthropic-dangerous-direct-browser-access': 'true',
-        'content-type': 'application/json'
-      },
-      body: JSON.stringify({
-        model: 'claude-3-5-sonnet-20241022',
-        max_tokens: 600, temperature: 0.3,
-        system: buildSystemPrompt(),
-        messages: [{ role: 'user', content: buildUserPrompt(jobData, storage) + '\n\nReturn ONLY valid JSON.' }]
-      })
-    });
-    if (!res.ok) throw new Error(`Anthropic ${res.status}`);
-    const content = parseJSON((await res.json()).content[0].text);
+    const text = await requestAnthropicText(
+      storage.apiKey,
+      buildUserPrompt(jobData, storage) + '\n\nReturn ONLY valid JSON.',
+      { system: buildSystemPrompt(), maxTokens: 900 }
+    );
+    const content = parseJSON(text);
     log(`Match: ${content.is_match} — ${content.reasoning?.substring(0, 60)}...`);
     return { success: true, evaluation: content };
   } catch (e) {
@@ -354,9 +505,39 @@ async function generateCoverLetter(jobData) {
 
 async function rewriteResume(jobData) {
   const storage = await chrome.storage.local.get(['aiModel', 'apiKey', 'resumeSummary', 'groqApiKey', 'ollamaBackendUrl', 'ollamaModel']);
-  const prompt = `Rewrite this resume summary to match the job (3-4 sentences).\nJob: ${jobData.title} at ${jobData.company}\nDescription: ${(jobData.description || '').substring(0, 800)}\nCurrent Summary: ${storage.resumeSummary || ''}\nReturn only the rewritten summary.`;
-  try { return { success: true, rewritten: await callLLM(storage, prompt) }; }
+  const resumeSummary = String(storage.resumeSummary || '').trim();
+  if (!resumeSummary) {
+    return { success: false, error: 'Add your resume summary in the Profile section before tailoring it.' };
+  }
+  const prompt = buildResumeRewritePrompt(jobData, resumeSummary);
+  try {
+    const rewritten = String(await callLLM(storage, prompt) || '').trim();
+    if (!rewritten) throw new Error('The AI returned an empty resume summary. Please try again.');
+    return { success: true, rewritten };
+  }
   catch (e) { return { success: false, error: e.message }; }
+}
+
+function buildResumeRewritePrompt(jobData, resumeSummary) {
+  return `Create a professional 3-4 sentence resume summary tailored to the selected job.
+
+ORIGINAL RESUME SUMMARY (the only allowed source of candidate facts):
+${resumeSummary}
+
+SELECTED JOB:
+Title: ${jobData.title || ''}
+Company: ${jobData.company || ''}
+Description: ${(jobData.description || '').substring(0, 1200)}
+
+FACTUALITY RULES:
+- Use only information explicitly present in the original resume summary.
+- Never invent employers, job titles, employment dates, qualifications, certifications, technical skills, projects, revenue, cost savings, percentages, business achievements, or years of experience.
+- Never increase years of experience or claim expertise based only on the job description.
+- Never convert a job requirement into an assumed candidate qualification.
+- If the resume lacks evidence for an important requirement, omit that claim.
+- You may reorder and rephrase existing skills, experience, leadership, achievements, and business outcomes to emphasize relevance without changing the facts.
+
+Return only the rewritten resume summary.`;
 }
 
 async function callLLM(storage, prompt) {
@@ -392,17 +573,66 @@ async function callLLM(storage, prompt) {
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${storage.apiKey}` },
       body: JSON.stringify({ model: 'gpt-4o-mini', messages: [{ role: 'user', content: prompt }], temperature: 0.5 })
     });
-    return (await res.json()).choices[0].message.content;
+    if (!res.ok) throw providerHttpError('OpenAI', res.status);
+    const data = await res.json();
+    if (typeof data?.choices?.[0]?.message?.content !== 'string') throw new Error('OpenAI returned an invalid response.');
+    return data.choices[0].message.content;
   }
   if (model === 'gemini_api' && storage.apiKey) {
-    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${storage.apiKey}`, {
+    const res = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'x-goog-api-key': storage.apiKey
+      },
       body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
     });
-    return (await res.json()).candidates[0].content.parts[0].text;
+    if (!res.ok) throw providerHttpError('Gemini', res.status);
+    const data = await res.json();
+    if (typeof data?.candidates?.[0]?.content?.parts?.[0]?.text !== 'string') throw new Error('Gemini returned an invalid response.');
+    return data.candidates[0].content.parts[0].text;
+  }
+  if (model === 'anthropic') {
+    return requestAnthropicText(storage.apiKey, prompt, { maxTokens: 1000 });
   }
   throw new Error('No suitable LLM configured.');
+}
+
+async function requestAnthropicText(apiKey, prompt, options = {}) {
+  if (!apiKey) throw new Error('Anthropic API key is missing.');
+  let res;
+  try {
+    res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'x-api-key': apiKey,
+        'anthropic-version': ANTHROPIC_API_VERSION,
+        'anthropic-dangerous-direct-browser-access': 'true',
+        'content-type': 'application/json'
+      },
+      body: JSON.stringify({
+        model: ANTHROPIC_MODEL,
+        max_tokens: options.maxTokens || 800,
+        ...(options.system ? { system: options.system } : {}),
+        messages: [{ role: 'user', content: prompt }]
+      })
+    });
+  } catch (_) {
+    throw new Error('Anthropic network request failed. Check your connection and try again.');
+  }
+  if (!res.ok) throw providerHttpError('Anthropic', res.status);
+  const data = await res.json();
+  const text = data?.content?.find(block => block?.type === 'text')?.text;
+  if (typeof text !== 'string' || !text.trim()) throw new Error('Anthropic returned an invalid response.');
+  return text;
+}
+
+function providerHttpError(provider, status) {
+  if (status === 400) return new Error(`${provider} rejected the request. Check the selected model and input.`);
+  if (status === 401 || status === 403) return new Error(`${provider} authentication failed. Check the configured API key.`);
+  if (status === 429) return new Error(`${provider} rate limit reached. Try again later.`);
+  if (status >= 500) return new Error(`${provider} service is temporarily unavailable (HTTP ${status}).`);
+  return new Error(`${provider} request failed (HTTP ${status}).`);
 }
 
 // ── Auto-save matches locally ─────────────────────────────────────────────
@@ -420,8 +650,9 @@ function _doSave(jobData, evaluation) {
 
       // Deduplicate only by job ID or exact URL — title+company is too aggressive
       const isDuplicate = saved.some(j =>
-        (jobData.id  && j.id  && j.id  === String(jobData.id)) ||
-        (jobData.url && j.url && j.url === jobData.url)
+        (jobData.id && j.id && String(j.id) === String(jobData.id)) ||
+        (jobData.url && (j.url === jobData.url || j.applyUrl === jobData.url)) ||
+        (jobData.applyUrl && (j.url === jobData.applyUrl || j.applyUrl === jobData.applyUrl))
       );
 
       if (isDuplicate) {
@@ -440,14 +671,21 @@ function _doSave(jobData, evaluation) {
         url:           jobData.url          || '',
         applyUrl:      jobData.applyUrl     || jobData.url || '',
         contactEmail:  jobData.contactEmail || '',
-        score:         evaluation.score        || 0,
-        skillsScore:   evaluation.skillsScore  || 0,
-        reqsScore:     evaluation.reqsScore    || 0,
-        respScore:     evaluation.respScore    || 0,
+        score:         evaluation.score        ?? null,
+        skillsScore:   evaluation.skillsScore  ?? null,
+        reqsScore:     evaluation.reqsScore    ?? null,
+        respScore:     evaluation.respScore    ?? null,
+        scoreCoverage: evaluation.scoreCoverage || null,
         matchedSkills: evaluation.matchedSkills  || [],
         missingSkills: evaluation.missingSkills  || [],
         reasoning:     evaluation.reasoning      || '',
         coverLetter:   evaluation.cover_letter   || '',
+        applicationStatus: 'Saved',
+        appliedDate: '',
+        followUpDate: '',
+        contactName: '',
+        notes: '',
+        trackerUpdatedAt: null,
         savedAt:       new Date().toISOString()
       });
 
@@ -467,7 +705,11 @@ function buildSystemPrompt() {
 Respond with EXACTLY valid JSON with these keys:
 - "is_match": boolean
 - "reasoning": string (2-3 sentences explaining the match decision)
-- "cover_letter": string (short 2-paragraph cover letter if is_match is true, else empty string)`;
+- "cover_letter": string (short 2-paragraph cover letter if is_match is true, else empty string)
+- "skills_assessment": array of objects with "text", "priority" (critical, important, or excellent), and "matched" boolean
+- "requirements_assessment": array of objects with "text", "priority" (critical, important, or excellent), and "matched" boolean
+- "responsibilities_assessment": array of objects with "text", "priority" (critical, important, or excellent), and "matched" boolean
+Only mark an item matched when the resume contains explicit supporting evidence. The compatibility score is calculated separately by the extension.`;
 }
 
 function buildUserPrompt(jobData, storage) {
