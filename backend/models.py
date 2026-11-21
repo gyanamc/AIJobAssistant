@@ -41,6 +41,79 @@ class Resume(Base):
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
 
+class CandidateProfile(Base):
+    __tablename__ = 'candidate_profiles'
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(String(100), index=True, nullable=True)
+    resume_id = Column(Integer, index=True, nullable=True)
+    candidate_hash = Column(String(64), unique=True, index=True, nullable=False)
+    role_title = Column(String(255), nullable=True)
+    headline = Column(String(255), nullable=True)
+    summary = Column(Text, nullable=True)
+    total_experience_years = Column(Float, nullable=True)
+    seniority = Column(String(50), nullable=True)
+    current_company = Column(String(255), nullable=True)
+    current_designation = Column(String(255), nullable=True)
+    skills = Column(Text, nullable=True)
+    location = Column(String(255), nullable=True)
+    structured_profile = Column(JSON, nullable=False, default=dict)
+    domains = Column(JSON, nullable=False, default=list)
+    education = Column(JSON, nullable=False, default=list)
+    certifications = Column(JSON, nullable=False, default=list)
+    suggested_job_titles = Column(JSON, nullable=False, default=list)
+    complementary_skills = Column(JSON, nullable=False, default=list)
+    name_enc = Column(Text, nullable=True)
+    email_enc = Column(Text, nullable=True)
+    phone_enc = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+
+class CandidateSkill(Base):
+    __tablename__ = 'candidate_skills'
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(String(100), index=True, nullable=False)
+    resume_id = Column(Integer, index=True, nullable=True)
+    name = Column(String(150), index=True, nullable=False)
+    category = Column(String(100), nullable=False, default='technical')
+    evidence_type = Column(String(50), nullable=False, default='explicit')
+    confidence = Column(Float, nullable=False, default=1.0)
+    evidence = Column(Text, nullable=False, default='')
+    source_section = Column(String(100), nullable=False, default='skills')
+    status = Column(String(50), nullable=False, default='resume_supported')  # resume_supported | ai_inferred | user_confirmed
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+
+class ResumeConsent(Base):
+    __tablename__ = 'resume_consent'
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(String(100), index=True, nullable=False)
+    purpose = Column(String(100), nullable=False)
+    consent_status = Column(Integer, nullable=False, default=1)  # 1=granted, 0=revoked
+    notice_version = Column(String(50), nullable=False)
+    provider_disclosures = Column(String(255), nullable=False, default='groq,ollama,openai,gemini,anthropic')
+    consented_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    ip_hash = Column(String(64), nullable=True, default='')
+
+
+class ResumeProcessingJob(Base):
+    __tablename__ = 'resume_processing_jobs'
+
+    id = Column(Integer, primary_key=True, index=True)
+    job_id = Column(String(64), unique=True, index=True, nullable=False)
+    user_id = Column(String(100), index=True, nullable=False)
+    file_hash = Column(String(64), nullable=False)
+    filename = Column(String(255), nullable=False)
+    status = Column(String(50), nullable=False, default='UPLOADED')
+    error_message = Column(Text, nullable=True, default='')
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+
 # Auto-create tables if they don't exist
 Base.metadata.create_all(bind=engine)
 
@@ -72,3 +145,72 @@ class ResumeMetadataResponse(BaseModel):
 
 class ResumeDetailResponse(ResumeMetadataResponse):
     extracted_text: str
+
+
+class SkillItemSchema(BaseModel):
+    name: str
+    category: str = "technical"
+    evidence_type: str = "explicit"  # explicit | inferred
+    confidence: float = 1.0
+    evidence: str = ""
+    source_section: str = "skills"
+    status: str = "resume_supported"  # resume_supported | ai_inferred | user_confirmed
+
+
+class ExperienceItemSchema(BaseModel):
+    company: str
+    designation: str
+    start_date: str = ""
+    end_date: str = ""
+    duration_months: Optional[int] = None
+    responsibilities: List[str] = Field(default_factory=list)
+    achievements: List[str] = Field(default_factory=list)
+
+
+class CandidateMetaSchema(BaseModel):
+    name: str = ""
+    headline: str = ""
+    summary: str = ""
+    total_experience_years: Optional[float] = None
+    seniority: str = ""
+    current_company: str = ""
+    current_designation: str = ""
+
+
+class StructuredProfileSchema(BaseModel):
+    candidate: CandidateMetaSchema = Field(default_factory=CandidateMetaSchema)
+    skills: List[SkillItemSchema] = Field(default_factory=list)
+    experience: List[ExperienceItemSchema] = Field(default_factory=list)
+    domains: List[str] = Field(default_factory=list)
+    education: List[Dict[str, Any]] = Field(default_factory=list)
+    certifications: List[str] = Field(default_factory=list)
+    suggested_job_titles: List[str] = Field(default_factory=list)
+    complementary_skills: List[str] = Field(default_factory=list)
+
+
+class CandidateProfileResponse(BaseModel):
+    id: Optional[int] = None
+    user_id: str
+    resume_id: Optional[int] = None
+    headline: str = ""
+    total_experience_years: Optional[float] = None
+    seniority: str = ""
+    current_company: str = ""
+    current_designation: str = ""
+    role_title: str = ""
+    location: str = ""
+    structured_profile: Dict[str, Any] = Field(default_factory=dict)
+    domains: List[str] = Field(default_factory=list)
+    education: List[Dict[str, Any]] = Field(default_factory=list)
+    certifications: List[str] = Field(default_factory=list)
+    suggested_job_titles: List[str] = Field(default_factory=list)
+    complementary_skills: List[str] = Field(default_factory=list)
+    skills_summary: Dict[str, List[str]] = Field(default_factory=dict)
+    created_at: str = ""
+    updated_at: str = ""
+
+
+class SkillConfirmationRequest(BaseModel):
+    skill_name: str
+    status: str = "user_confirmed"
+    category: Optional[str] = "technical"

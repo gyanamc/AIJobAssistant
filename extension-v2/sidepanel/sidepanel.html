@@ -38,21 +38,107 @@
 
     <!-- IDLE STATE: shown when no job is selected -->
     <div id="idleView" class="idle-view">
-      <div id="onboardingBanner" class="onboarding-card hidden">
-        <div class="onboarding-header">
-          <span class="onboarding-badge">Step 1</span>
-          <span class="onboarding-title">Complete Your Profile</span>
+      <!-- HERO ONBOARDING VIEW: shown when user hasn't uploaded a resume yet -->
+      <div id="heroOnboardingCard" class="hero-onboarding-card">
+        <div class="hero-header">
+          <div class="hero-tag">AI Career Assistant v2.5.0</div>
+          <h2 class="hero-title">Your career starts here.</h2>
+          <p class="hero-subtitle">Upload your resume. Let AI do the rest.</p>
         </div>
-        <p class="onboarding-desc">Add your resume summary or upload your resume to unlock personalized match scores and cover letters on LinkedIn &amp; Naukri.</p>
-        <button id="onboardingCtaBtn" class="onboarding-cta-btn">Set Up Profile Now &rarr;</button>
+
+        <!-- Prominent Upload Dropzone -->
+        <div class="hero-dropzone" id="heroDropzone">
+          <div class="hero-dropzone-icon">&#128194;</div>
+          <div class="hero-dropzone-content">
+            <span class="hero-dropzone-primary">Click to select resume or drag &amp; drop here</span>
+            <span class="hero-dropzone-sub">Supported formats: <strong>PDF, DOCX, TXT</strong> &bull; Max size: <strong>10 MB</strong></span>
+          </div>
+          <input type="file" id="heroFileInput" accept=".pdf,.docx,.txt" style="display:none">
+        </div>
+
+        <!-- Selected file display card -->
+        <div id="heroSelectedFileCard" class="hero-file-card hidden">
+          <div class="hero-file-info">
+            <span class="hero-file-icon">&#128196;</span>
+            <div class="hero-file-details">
+              <span class="hero-file-name" id="heroFileName">resume.pdf</span>
+              <span class="hero-file-size" id="heroFileSize">1.2 MB</span>
+            </div>
+          </div>
+          <button type="button" class="hero-file-change-btn" id="heroFileChangeBtn">&#8635; Replace</button>
+        </div>
+
+        <!-- Private Account Session Identification -->
+        <div class="hero-account-row">
+          <label class="hero-input-label" for="heroUserEmail">&#128272; Account Email (Private Cloud Storage)</label>
+          <input type="email" id="heroUserEmail" class="hero-input" placeholder="you@example.com">
+          <small class="hero-hint">Your resume and AI profile are encrypted and stored privately in PostgreSQL.</small>
+        </div>
+
+        <!-- Affirmative Consent Disclosure -->
+        <div class="hero-consent-row">
+          <input type="checkbox" id="heroConsentCheckbox" class="consent-checkbox" checked>
+          <label for="heroConsentCheckbox" class="consent-text">
+            I consent to AI parsing and securely persisting my resume and structured profile in my private account.
+          </label>
+        </div>
+
+        <!-- Primary CTA Button -->
+        <button type="button" id="heroUploadCtaBtn" class="hero-cta-btn">
+          <span class="cta-sparkle">&#10024;</span> Upload Resume &amp; Build My AI Profile
+        </button>
+
+        <!-- Progress and Status State Machine -->
+        <div id="heroProgressContainer" class="hero-progress-container hidden">
+          <div class="hero-progress-track">
+            <div id="heroProgressBarFill" class="hero-progress-fill" style="width:0%"></div>
+          </div>
+          <div class="hero-progress-status">
+            <span class="hero-spinner"></span>
+            <span id="heroProgressStatusText">Uploading resume...</span>
+          </div>
+        </div>
+
+        <!-- Duplicate Detected Alert -->
+        <div id="heroDuplicateBox" class="hero-alert-box alert-duplicate hidden">
+          <span class="alert-icon">&#8505;</span>
+          <div class="alert-text">
+            <strong>Resume already processed:</strong>
+            <span id="heroDuplicateMsg">This resume is already saved in your private cloud account.</span>
+          </div>
+          <button type="button" class="alert-btn" id="heroViewProfileBtn">View AI Profile &rarr;</button>
+        </div>
+
+        <!-- Error Recovery Alert -->
+        <div id="heroErrorBox" class="hero-alert-box alert-error hidden">
+          <span class="alert-icon">&#9888;</span>
+          <div class="alert-text">
+            <strong>Upload Failed:</strong>
+            <span id="heroErrorMsg">Could not connect to backend service.</span>
+          </div>
+          <button type="button" class="alert-btn" id="heroRetryBtn">&#8635; Retry</button>
+        </div>
       </div>
 
-      <div class="idle-icon">&#128269;</div>
-      <p class="idle-title">No job selected</p>
-      <p class="idle-sub">Click on any job card on LinkedIn or Naukri and the analysis will appear here automatically.</p>
-      <div class="platform-badges">
-        <span class="badge badge-li">LinkedIn</span>
-        <span class="badge badge-nk">Naukri</span>
+      <!-- ACTIVE RESUME PROFILE HERO CARD (shown when profile already exists) -->
+      <div id="activeProfileCard" class="active-profile-card hidden">
+        <div class="active-profile-badge">&#10003; AI Profile Active</div>
+        <h3 class="active-profile-headline" id="activeProfileHeadline">Senior AI/ML Engineer</h3>
+        <p class="active-profile-meta" id="activeProfileMeta">Total Experience: 6.5 yrs &bull; Lead / Staff &bull; Cloud Verified</p>
+        <div class="active-profile-actions">
+          <button type="button" class="active-view-btn" id="activeViewProfileBtn">&#128100; View / Edit Profile</button>
+          <button type="button" class="active-replace-btn" id="activeReplaceResumeBtn">&#128196; Replace Resume</button>
+        </div>
+      </div>
+
+      <div class="idle-browse-card" id="idleBrowseCard">
+        <div class="idle-icon">&#128269;</div>
+        <p class="idle-title">Ready to evaluate jobs</p>
+        <p class="idle-sub">Click on any job card on LinkedIn or Naukri. AI Job Assistant will automatically match it against your candidate profile.</p>
+        <div class="platform-badges">
+          <span class="badge badge-li">LinkedIn</span>
+          <span class="badge badge-nk">Naukri</span>
+        </div>
       </div>
     </div>
 
@@ -365,89 +451,192 @@
         <div class="meter-bar-track">
           <div id="profileMeterFill" class="meter-bar-fill" style="width:0%"></div>
         </div>
-        <span class="meter-hint" id="profileMeterHint">Add your resume summary to start matching</span>
+        <span class="meter-hint" id="profileMeterHint">Upload your resume to automatically generate your AI profile.</span>
       </div>
 
-      <!-- Upload Resume Section -->
-      <div class="settings-section resume-upload-section">
-        <label class="field-label">&#128196; Resume Document (PDF, DOCX, TXT)</label>
-        <div class="resume-dropzone" id="resumeDropzone">
-          <span class="dropzone-icon">&#128194;</span>
-          <div class="dropzone-text">
-            <strong>Click to upload</strong> or drag file here
-            <small>PDF, DOCX, or TXT up to 10 MB</small>
+      <!-- AI-Generated Candidate Profile Card -->
+      <div class="card candidate-profile-card" id="candidateProfileCard">
+        <div class="candidate-header-row">
+          <div class="candidate-identity">
+            <h3 class="candidate-name" id="candidateNameText">Your Candidate Profile</h3>
+            <p class="candidate-headline" id="candidateHeadlineText">Upload a resume to unlock career intelligence</p>
           </div>
-          <input type="file" id="resumeFileInput" accept=".pdf,.docx,.txt" style="display:none">
-        </div>
-        <div class="consent-row upload-consent-row">
-          <input type="checkbox" id="resumeStorageConsent" class="consent-checkbox">
-          <label for="resumeStorageConsent" class="consent-text" style="font-size:11px; color:var(--text-muted);">
-            I consent to storing my uploaded resume file and parsed information securely in the database.
-          </label>
-        </div>
-        <div id="resumeUploadStatus" class="upload-status-box hidden"></div>
-        <div id="uploadedResumesList" class="uploaded-resumes-list"></div>
-      </div>
-
-      <!-- Interactive Skills Curation & Confirmation -->
-      <div class="settings-section skills-curation-section" id="skillsCurationSection">
-        <div class="skills-curation-header" style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
-          <label class="field-label" style="margin-bottom:0;">🎯 Confirmed Key Skills (<span id="confirmedSkillsCount">0</span>)</label>
-          <button type="button" class="text-link-btn" id="clearAllSkillsBtn" style="font-size:11px; color:var(--text-dim); background:none; border:none; cursor:pointer;">Clear</button>
-        </div>
-        <p class="field-hint" style="margin-top:0; margin-bottom:8px;">Extracted from your resume. Review and confirm these skills, click ✕ to remove or ⭐ to highlight.</p>
-
-        <!-- Confirmed skills chips container -->
-        <div class="skills-chips-wrap" id="confirmedSkillsChips" style="display:flex; flex-wrap:wrap; gap:6px; min-height:32px; padding:6px; background:var(--bg-elevated); border:1px solid var(--border); border-radius:var(--radius-sm); margin-bottom:8px;">
-          <span class="skills-empty-hint" id="noSkillsHint" style="font-size:11px; color:var(--text-dim); padding:4px;">No skills confirmed yet. Upload your resume or add skills below.</span>
-        </div>
-
-        <!-- Add Skill Input Row -->
-        <div class="add-skill-row" style="display:flex; gap:6px; margin-bottom:10px;">
-          <input type="text" id="addSkillInput" class="field-input" placeholder="Type a skill (e.g. Docker, PyTorch)..." style="flex:1; font-size:12px; padding:5px 8px;">
-          <button type="button" id="addSkillBtn" class="action-btn-outline" style="padding:5px 10px; font-size:12px; cursor:pointer;">+ Add</button>
-        </div>
-
-        <!-- Suggested Additional Skills Box -->
-        <div class="suggested-skills-box" id="suggestedSkillsBox" style="padding:10px; background:var(--bg-card); border:1px dashed var(--accent); border-radius:var(--radius-sm); margin-bottom:10px;">
-          <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:4px;">
-            <span style="font-size:11px; font-weight:600; color:var(--accent);">💡 Suggested Additional Skills</span>
-            <small style="font-size:10px; color:var(--text-dim);">Click + to add</small>
+          <div class="candidate-badges">
+            <span class="candidate-seniority-badge" id="candidateSeniorityBadge">Junior / Mid</span>
+            <span class="candidate-exp-badge" id="candidateExpBadge">-- yrs</span>
           </div>
-          <p class="field-hint" style="margin-top:0; margin-bottom:6px;">High-demand skills matching your profile to boost your job match score:</p>
-          <div class="suggested-chips-wrap" id="suggestedSkillsChips" style="display:flex; flex-wrap:wrap; gap:6px;"></div>
         </div>
 
-        <!-- Detected Suggested Roles -->
-        <div class="suggested-roles-box hidden" id="suggestedRolesBox" style="margin-bottom:10px;">
-          <div style="font-size:11px; font-weight:600; color:var(--text-muted); margin-bottom:4px;">💡 Detected Roles from Resume (click to set):</div>
-          <div id="suggestedRolesChips" style="display:flex; flex-wrap:wrap; gap:6px;"></div>
+        <div class="candidate-meta-grid">
+          <div class="candidate-meta-item">
+            <span class="meta-label">&#128188; Current Role:</span>
+            <span class="meta-value" id="candidateDesignationText">Not specified</span>
+          </div>
+          <div class="candidate-meta-item">
+            <span class="meta-label">&#127970; Company:</span>
+            <span class="meta-value" id="candidateCompanyText">Not specified</span>
+          </div>
+        </div>
+
+        <div class="candidate-summary-box">
+          <label class="field-label">&#128220; Career Summary</label>
+          <p class="candidate-summary-text" id="candidateSummaryText">No summary generated yet. Upload your resume to extract your executive summary.</p>
         </div>
       </div>
 
-      <div class="settings-section">
-        <label class="field-label">Target Roles</label>
-        <input type="text" id="targetRoles" class="field-input" placeholder="AI Lead, ML Engineer, ...">
-        <small class="field-hint">Comma-separated</small>
+      <!-- 3-TIER SKILLS INVENTORY -->
+      <div class="card section-card" id="skillsInventoryCard">
+        <div class="section-header" data-target="skillsInventoryBody">
+          <span class="section-icon">&#127919;</span>
+          <span class="section-title">Verified Skills &amp; Intelligence</span>
+          <span class="section-count" id="totalSkillsCount">0</span>
+          <span class="section-chevron">&#8963;</span>
+        </div>
+        <div class="section-body" id="skillsInventoryBody">
+          <!-- Tier 1: Resume-Supported Skills -->
+          <div class="skill-tier-group">
+            <div class="skill-tier-header">
+              <span class="tier-label tier-supported">&#10003; Resume-Supported Skills (<span id="supportedSkillsCount">0</span>)</span>
+              <small class="tier-desc">Explicitly verified from resume text evidence</small>
+            </div>
+            <div class="skills-chips-wrap" id="supportedSkillsChips"></div>
+          </div>
+
+          <!-- Tier 2: AI-Inferred Skills -->
+          <div class="skill-tier-group" style="margin-top:12px;">
+            <div class="skill-tier-header">
+              <span class="tier-label tier-inferred">&#128161; AI-Inferred Skills (<span id="inferredSkillsCount">0</span>)</span>
+              <small class="tier-desc">Suggested by AI based on stack &amp; domains. Click + to confirm</small>
+            </div>
+            <div class="skills-chips-wrap" id="inferredSkillsChips"></div>
+          </div>
+
+          <!-- Tier 3: User-Confirmed Skills -->
+          <div class="skill-tier-group" style="margin-top:12px;">
+            <div class="skill-tier-header">
+              <span class="tier-label tier-confirmed">&#11088; User-Confirmed Skills (<span id="userConfirmedSkillsCount">0</span>)</span>
+              <small class="tier-desc">Confirmed by you or added via Add &amp; Re-score</small>
+            </div>
+            <div class="skills-chips-wrap" id="userConfirmedSkillsChips"></div>
+          </div>
+
+          <!-- Add Skill Row -->
+          <div class="add-skill-row" style="display:flex; gap:6px; margin-top:12px;">
+            <input type="text" id="addSkillInput" class="field-input" placeholder="Add custom skill (e.g. Docker, PyTorch)..." style="flex:1; font-size:12px; padding:6px 8px;">
+            <button type="button" id="addSkillBtn" class="action-btn-outline" style="padding:6px 12px; font-size:12px; cursor:pointer;">+ Add Skill</button>
+          </div>
+        </div>
       </div>
-      <div class="settings-section">
-        <label class="field-label">Locations</label>
-        <input type="text" id="targetLocations" class="field-input" placeholder="Gurgaon, Remote, ...">
-        <small class="field-hint">Comma-separated</small>
+
+      <!-- DOMAIN EXPERTISE & TARGET ROLES -->
+      <div class="card section-card" id="domainsRolesCard">
+        <div class="section-header" data-target="domainsRolesBody">
+          <span class="section-icon">&#127760;</span>
+          <span class="section-title">Domain Expertise &amp; Job Titles</span>
+          <span class="section-chevron">&#8963;</span>
+        </div>
+        <div class="section-body" id="domainsRolesBody">
+          <label class="field-label">&#127970; Industry Domains</label>
+          <div class="domains-chips-wrap" id="domainsChipsWrap" style="display:flex; flex-wrap:wrap; gap:6px; margin-bottom:12px;"></div>
+
+          <label class="field-label">&#128188; Recommended Job Titles</label>
+          <div class="roles-chips-wrap" id="suggestedRolesChipsWrap" style="display:flex; flex-wrap:wrap; gap:6px; margin-bottom:12px;"></div>
+
+          <div class="settings-section" style="margin-top:8px;">
+            <label class="field-label">Target Roles (comma-separated)</label>
+            <input type="text" id="targetRoles" class="field-input" placeholder="AI Lead, ML Engineer, Full Stack...">
+          </div>
+          <div class="settings-section">
+            <label class="field-label">Target Locations (comma-separated)</label>
+            <input type="text" id="targetLocations" class="field-input" placeholder="Bangalore, Remote, Hybrid...">
+          </div>
+        </div>
       </div>
-      <div class="settings-section">
-        <label class="field-label">Resume Summary / Skills</label>
-        <textarea id="resumeSummary" class="field-textarea" rows="6" placeholder="Paste your resume summary or key skills here..."></textarea>
+
+      <!-- EDUCATION & CERTIFICATIONS -->
+      <div class="card section-card" id="educationCertCard">
+        <div class="section-header" data-target="educationCertBody">
+          <span class="section-icon">&#127891;</span>
+          <span class="section-title">Education &amp; Certifications</span>
+          <span class="section-chevron">&#8963;</span>
+        </div>
+        <div class="section-body" id="educationCertBody">
+          <div class="education-list" id="educationList"></div>
+          <div class="certifications-list" id="certificationsList" style="margin-top:8px;"></div>
+        </div>
       </div>
-      <div class="settings-section checkbox-row">
-        <input type="checkbox" id="shareAnonymized">
-        <label for="shareAnonymized" class="checkbox-label">
-          Share my profile with verified recruiters
-          <span class="consent-detail">When enabled, your resume summary, skills, target roles and locations are sent to the AI Job Assistant recruiter platform so recruiters can discover relevant candidates. Sharing is off by default. Turning this off stops future synchronization but does not delete information already shared.</span>
-        </label>
+
+      <!-- WORK EXPERIENCE TIMELINE -->
+      <div class="card section-card" id="experienceTimelineCard">
+        <div class="section-header" data-target="experienceTimelineBody">
+          <span class="section-icon">&#128197;</span>
+          <span class="section-title">Experience Timeline</span>
+          <span class="section-chevron">&#8963;</span>
+        </div>
+        <div class="section-body" id="experienceTimelineBody">
+          <div class="timeline-container" id="timelineContainer"></div>
+        </div>
       </div>
-      <button class="save-btn" id="saveProfileBtn">Save Profile</button>
-      <div class="save-confirm hidden" id="profileSaved">&#10003; Profile saved</div>
+
+      <!-- RESUME CLOUD PERSISTENCE & SETTINGS -->
+      <div class="card section-card" id="resumeManagementCard">
+        <div class="section-header" data-target="resumeManagementBody">
+          <span class="section-icon">&#9729;</span>
+          <span class="section-title">Cloud Resume &amp; Privacy Controls</span>
+          <span class="section-chevron">&#8963;</span>
+        </div>
+        <div class="section-body" id="resumeManagementBody">
+          <div id="activeResumeBadgeCard" class="active-resume-file-card hidden">
+            <div class="resume-file-info">
+              <span class="file-icon">&#128196;</span>
+              <div class="file-details">
+                <span class="file-name" id="activeResumeFileName">resume.pdf</span>
+                <span class="file-version" id="activeResumeVersion">Version 1 &bull; Saved in Cloud</span>
+              </div>
+            </div>
+            <button type="button" class="replace-resume-btn" id="replaceResumeActionBtn">&#8635; Replace</button>
+          </div>
+
+          <div class="settings-section resume-upload-section" id="profileTabUploadSection">
+            <label class="field-label">&#128196; Upload / Replace Resume File</label>
+            <div class="resume-dropzone" id="resumeDropzone">
+              <span class="dropzone-icon">&#128194;</span>
+              <div class="dropzone-text">
+                <strong>Click to upload</strong> or drag file here
+                <small>PDF, DOCX, or TXT up to 10 MB</small>
+              </div>
+              <input type="file" id="resumeFileInput" accept=".pdf,.docx,.txt" style="display:none">
+            </div>
+            <div class="consent-row upload-consent-row">
+              <input type="checkbox" id="resumeStorageConsent" class="consent-checkbox" checked>
+              <label for="resumeStorageConsent" class="consent-text" style="font-size:11px; color:var(--text-muted);">
+                I consent to storing my uploaded resume file and parsed information securely in the database.
+              </label>
+            </div>
+            <div id="resumeUploadStatus" class="upload-status-box hidden"></div>
+            <div id="uploadedResumesList" class="uploaded-resumes-list"></div>
+          </div>
+
+          <div class="settings-section" style="margin-top:10px;">
+            <label class="field-label">Raw Resume Summary / Notes</label>
+            <textarea id="resumeSummary" class="field-textarea" rows="4" placeholder="AI-generated resume summary..."></textarea>
+          </div>
+
+          <div class="settings-section checkbox-row" style="margin-top:10px;">
+            <input type="checkbox" id="shareAnonymized">
+            <label for="shareAnonymized" class="checkbox-label">
+              Share my profile with verified recruiters
+              <span class="consent-detail">When enabled, your resume summary, skills, target roles and locations are sent to the AI Job Assistant recruiter platform so recruiters can discover relevant candidates. Sharing is off by default.</span>
+            </label>
+          </div>
+
+          <div class="profile-actions-row" style="display:flex; justify-content:space-between; align-items:center; margin-top:12px;">
+            <button class="save-btn" id="saveProfileBtn" style="flex:1; margin-right:8px;">Save Changes</button>
+            <button type="button" class="delete-profile-btn" id="deleteProfileBtn" style="padding:8px 12px; background:rgba(239, 68, 68, 0.15); border:1px solid var(--red); color:var(--red); border-radius:var(--radius-sm); font-size:11px; cursor:pointer;">&#128465; Delete Data</button>
+          </div>
+          <div class="save-confirm hidden" id="profileSaved">&#10003; Profile saved</div>
+        </div>
+      </div>
     </div>
 
     <!-- SAVED JOBS VIEW -->

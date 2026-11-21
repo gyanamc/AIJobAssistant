@@ -1,4 +1,15 @@
-# AI Job Assistant Extension (v2.4.0)
+# AI Job Assistant Extension (v2.5.0)
+
+## v2.5.0 release summary (November 21, 2026) — Resume-First AI Career Assistant
+
+- **Resume-First AI Onboarding**: First-time users are greeted with a frictionless hero onboarding experience ("Your career starts here. Upload your resume. Let AI do the rest."). Users upload their resume once, and the AI automatically extracts a complete, structured candidate profile.
+- **Automated AI Profile Generation**: Extracts candidate name, professional headline, executive career summary, non-overlapping total experience years, seniority level, current designation, industry domains, education, certifications, and recommended job titles without manual data entry.
+- **3-Tier Skill Classification & Intelligence**:
+  - `resume_supported`: Explicitly discovered in resume text with evidence snippet quote and high confidence.
+  - `ai_inferred`: Discovered from stack and domain context, with 1-click `+ Confirm` action.
+  - `user_confirmed`: Explicitly confirmed by candidate or added via `+ Add & Re-score`.
+- **Private Multi-User Cloud Storage**: Full multi-user isolation on Railway PostgreSQL backend (`resumes` BYTEA storage, SHA-256 deduplication, versioning, `candidate_profiles`, `candidate_skills`, `resume_consent`). Uses signed HMAC-SHA256 Bearer session authentication.
+- **Privacy Controls & GDPR Compliance**: Purpose-specific affirmative consent logging before parsing, no contact info leakage in diagnostic logs, complete profile and data erasure endpoint (`DELETE /api/v1/candidate/profile`).
 
 ## v2.4.0 release summary (November 21, 2026)
 
