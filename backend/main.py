@@ -1948,6 +1948,44 @@ async def admin_stats():
         "recent_jobs": recent_jobs
     }
 
+@app.get("/api/v1/admin/candidates")
+async def list_all_candidates():
+    candidates = []
+    resumes = []
+    with engine.connect() as conn:
+        try:
+            rows = conn.execute(text("""
+                SELECT id, candidate_hash, role_title, skills, location, summary, created_at
+                FROM candidate_profiles
+                ORDER BY created_at DESC
+            """)).fetchall()
+            candidates = [dict(r._mapping) for r in rows]
+            for c in candidates:
+                if c.get("created_at") and hasattr(c["created_at"], "isoformat"):
+                    c["created_at"] = c["created_at"].isoformat()
+        except Exception as e:
+            print(f"Error fetching candidate_profiles: {e}")
+
+        try:
+            res_rows = conn.execute(text("""
+                SELECT id, user_id, filename, mime_type, file_size, extracted_text, version, created_at
+                FROM resumes
+                ORDER BY created_at DESC
+            """)).fetchall()
+            resumes = [dict(r._mapping) for r in res_rows]
+            for r in resumes:
+                if r.get("created_at") and hasattr(r["created_at"], "isoformat"):
+                    r["created_at"] = r["created_at"].isoformat()
+        except Exception as e:
+            print(f"Error fetching resumes: {e}")
+
+    return {
+        "total_profiles": len(candidates),
+        "profiles": candidates,
+        "total_resumes": len(resumes),
+        "resumes": resumes
+    }
+
 @app.get("/dashboard", response_class=HTMLResponse)
 async def dashboard_view():
     return """
@@ -2097,7 +2135,93 @@ async def dashboard_view():
             </div>
         </div>
 
+        <!-- ── All Candidate Profiles & Resumes ── -->
+        <div class="section-title" style="margin-top: 40px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px;">
+            <div>All Collected Resumes & Profiles (<span id="all_candidates_count">--</span>)</div>
+            <input type="text" id="candidateSearchInput" placeholder="🔍 Search by role, skills, location, or keywords..." style="background: var(--surface2); border: 1px solid rgba(255,255,255,0.18); color: var(--text); padding: 8px 14px; border-radius: 8px; font-size: 0.85rem; width: 320px; outline: none;" />
+        </div>
+        <div class="feed-card" style="margin-top: 14px; overflow-x: auto;">
+            <table class="log-table" id="all_candidates_table">
+                <thead>
+                    <tr>
+                        <th style="width: 22%;">Target Role / Title</th>
+                        <th style="width: 24%;">Skills</th>
+                        <th style="width: 14%;">Location</th>
+                        <th style="width: 12%;">Created Date</th>
+                        <th style="width: 28%;">Summary / Background</th>
+                    </tr>
+                </thead>
+                <tbody id="all_candidates_body">
+                    <tr><td colspan="5" class="empty">Loading all candidates and resumes...</td></tr>
+                </tbody>
+            </table>
+        </div>
+
         <script>
+            function escapeHtml(str) {
+                return (str || '').replace(/[&<>'"]/g, tag => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[tag] || tag));
+            }
+
+            let allCandidatesData = [];
+            async function fetchAllCandidates() {
+                try {
+                    const res = await fetch('/api/v1/admin/candidates');
+                    if (!res.ok) return;
+                    const d = await res.json();
+                    allCandidatesData = d.profiles || [];
+                    document.getElementById('all_candidates_count').innerText = allCandidatesData.length;
+                    renderCandidates(allCandidatesData);
+                } catch (e) {
+                    console.error('Failed to load all candidates', e);
+                }
+            }
+
+            function renderCandidates(list) {
+                const tbody = document.getElementById('all_candidates_body');
+                if (!list.length) {
+                    tbody.innerHTML = '<tr><td colspan="5" class="empty">No candidates or resumes found.</td></tr>';
+                    return;
+                }
+                tbody.innerHTML = list.map((c, i) => {
+                    const skills = (c.skills || '').split(',').map(s => s.trim()).filter(Boolean);
+                    const skillsHtml = skills.slice(0, 6).map(s => `<span class="pill pill-blue">${escapeHtml(s)}</span>`).join('') + (skills.length > 6 ? ` <span style="font-size:11px;color:var(--text-muted);">+${skills.length - 6} more</span>` : '');
+                    const summary = (c.summary || '').trim();
+                    const shortSummary = summary.length > 130 ? summary.substring(0, 130) + '...' : summary;
+                    return `
+                        <tr>
+                            <td><strong style="color:#f9fafb; font-size:13.5px;">${escapeHtml(c.role_title || 'General / Unspecified')}</strong></td>
+                            <td>${skillsHtml || '<span style="color:var(--text-muted);font-size:12px;">--</span>'}</td>
+                            <td><span style="color:var(--text-muted); font-size:12.5px;">${escapeHtml(c.location || 'Remote / Flexible')}</span></td>
+                            <td><span style="color:var(--text-muted); font-size:12px;">${c.created_at ? new Date(c.created_at).toLocaleDateString() : '--'}</span></td>
+                            <td>
+                                <div style="font-size:12px; color:#d1d5db; line-height:1.45;">${escapeHtml(shortSummary || 'No summary text available')}</div>
+                                ${summary.length > 130 ? `<button onclick="showSummary(this)" data-role="${escapeHtml(c.role_title || '')}" data-summary="${escapeHtml(summary)}" style="margin-top:4px;background:none;border:none;color:var(--accent);cursor:pointer;font-size:11.5px;padding:0;font-weight:600;">View Full Background &rarr;</button>` : ''}
+                            </td>
+                        </tr>
+                    `;
+                }).join('');
+            }
+
+            function showSummary(btn) {
+                const role = btn.getAttribute('data-role') || 'Candidate';
+                const summary = btn.getAttribute('data-summary') || '';
+                alert(`Candidate: ${role}\n\nFull Summary:\n${summary}`);
+            }
+
+            document.getElementById('candidateSearchInput')?.addEventListener('input', (e) => {
+                const q = e.target.value.toLowerCase().trim();
+                if (!q) {
+                    renderCandidates(allCandidatesData);
+                    return;
+                }
+                const filtered = allCandidatesData.filter(c => 
+                    (c.role_title || '').toLowerCase().includes(q) ||
+                    (c.skills || '').toLowerCase().includes(q) ||
+                    (c.location || '').toLowerCase().includes(q) ||
+                    (c.summary || '').toLowerCase().includes(q)
+                );
+                renderCandidates(filtered);
+            });
             // ── Recruiter stats ──────────────────────────────────────────────
             async function fetchStats() {
                 try {
@@ -2234,9 +2358,11 @@ async def dashboard_view():
             fetchStats();
             fetchDailyStats();
             fetchIngestionLog();
-            setInterval(fetchStats,        30000);
-            setInterval(fetchDailyStats,   60000);
-            setInterval(fetchIngestionLog, 60000);
+            fetchAllCandidates();
+            setInterval(fetchStats,          30000);
+            setInterval(fetchAllCandidates,  30000);
+            setInterval(fetchDailyStats,     60000);
+            setInterval(fetchIngestionLog,   60000);
         </script>
     </body>
     </html>
