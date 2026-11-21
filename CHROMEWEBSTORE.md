@@ -1,6 +1,6 @@
 # Chrome Web Store Listing — AI Job Assistant
 
-> Last Updated: 2026-11-20 (Version 2.3.0)
+> Last Updated: 2026-11-21 (Version 2.4.0)
 
 ## Store Listing
 
@@ -116,6 +116,8 @@ support@gyanam.store
 
 | Version | Date | Changes | Status |
 |---------|------|---------|--------|
+| 2.4.0 | 2026-11-21 | Redesigned bottom navigation into a glowing frosted-glass dock with vibrant multi-chromatic neon laser strip, distinct signature tab luminescence, magnetic hover micro-lift, and radiant active capsules. Updated Application Tracker navigation icon to 🎯 target. | Ready for Release |
+| 2.3.0 | 2026-11-20 | 1-Click Skill Gap Fixer & Re-Scorer, in-page search match badges on LinkedIn & Naukri, recruiter follow-up email generator with mailto launcher, and screening Q&A assistant. | Published |
 | 2.1.0 | 2026-11-08 | Added application tracking, follow-up management, three-job comparison, actionable fit insights, tracker CSV fields, backward-compatible saved-job migration, corrected BYOK disclosures, and moved Gemini authentication to the `x-goog-api-key` header with an active model. No new permissions. | Draft |
 | 2.0.9 | 2026-11-07 | Fixed legacy score coverage labelling (historical records no longer silently upgraded to partial/full coverage); corrected privacy disclosures in privacy-policy.html and CHROMEWEBSTORE.md to accurately reflect AI evaluation data flow; added real MV3 unpacked extension smoke test; added test prerequisites documentation. | Draft |
 | 2.0.8 | 2026-11-07 | Modernized Anthropic Claude Sonnet 5 integration, added factuality safeguards for resume rewriting, introduced multi-dimensional scoring coverage with minimum classification thresholds, hardened DOM/URL safety, and removed review prompt loop. | Draft |
