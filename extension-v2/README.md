@@ -1,4 +1,10 @@
-# AI Job Assistant Extension (v2.3.0)
+# AI Job Assistant Extension (v2.4.0)
+
+## v2.4.0 release summary (November 21, 2026)
+
+- **Glowing Futuristic Bottom Navigation Dock**: Completely redesigned bottom navigation bar (`Analysis`, `Saved`, `Log`, `Settings`, `Profile`, `Tracker`, `Compare`) with a frosted-glass floating dock, multi-chromatic neon top laser strip, distinctive signature radiance per tab, magnetic hover lift, and luminous active indicator capsules.
+- **Dedicated Tracker Navigation Icon**: Replaced duplicate clipboard icon on Tracker with a high-visibility target icon (`🎯`) for seamless visual orientation.
+- **Enhanced Dark & Light Theme Dock Radiance**: Custom neon RGB tokens and radial backlights optimized for high readability and magnetic visual appeal across all theme preferences.
 
 ## v2.3.0 release summary (November 20, 2026)
 
