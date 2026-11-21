@@ -110,7 +110,7 @@ def insert_job(job: dict, embedding: list | None) -> bool:
                     (id, title, company, location, source, description, apply_url, embedding, scraped_at, updated_at)
                 VALUES
                     (:id, :title, :company, :location, :source, :description, :apply_url,
-                     :emb::vector, NOW(), NOW())
+                     CAST(:emb AS vector), NOW(), NOW())
                 ON CONFLICT (id) DO NOTHING
             """), {
                 "id":          job["id"],

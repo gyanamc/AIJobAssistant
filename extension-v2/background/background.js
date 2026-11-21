@@ -136,11 +136,25 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       .catch(err => sendResponse({ success: false, error: err.toString() }));
     return true;
   }
+
+  if (request.type === 'DRAFT_APPLICATION_ANSWER') {
+    draftApplicationAnswer(request.data?.jobData || {}, request.data?.question || '')
+      .then(result => sendResponse(result))
+      .catch(err => sendResponse({ success: false, error: err.toString() }));
+    return true;
+  }
+
+  if (request.type === 'DRAFT_FOLLOW_UP_EMAIL') {
+    draftFollowUpEmail(request.data || {})
+      .then(result => sendResponse(result))
+      .catch(err => sendResponse({ success: false, error: err.toString() }));
+    return true;
+  }
 });
 
 // ── Job Evaluation ────────────────────────────────────────────────────────
 async function evaluateJob(jobData) {
-  const storage = await chrome.storage.local.get(['aiModel', 'apiKey', 'resumeSummary', 'groqApiKey', 'ollamaBackendUrl', 'ollamaModel']);
+  const storage = await chrome.storage.local.get(['aiModel', 'apiKey', 'resumeSummary', 'userSkills', 'groqApiKey', 'ollamaBackendUrl', 'ollamaModel']);
   const model   = storage.aiModel === 'gemini' ? 'free' : (storage.aiModel || 'free');
 
   let rawResult;
@@ -173,7 +187,9 @@ async function evaluateJob(jobData) {
 
 // ── Enrichment ────────────────────────────────────────────────────────────
 function enrichEvaluation(raw, jobData, storage) {
-  const resumeText = String(storage.resumeSummary || '').trim();
+  const confirmedSkills = Array.isArray(storage.userSkills) ? storage.userSkills : [];
+  const confirmedLowerSet = new Set(confirmedSkills.map(s => String(s).toLowerCase().trim()));
+  const resumeText = [confirmedSkills.join(', '), String(storage.resumeSummary || '').trim()].filter(Boolean).join('\n');
   const description = String(jobData.description || '').trim();
   const resumeLower = resumeText.toLowerCase();
   const descLower = description.toLowerCase();
@@ -186,13 +202,13 @@ function enrichEvaluation(raw, jobData, storage) {
     : commonSkills.filter(skill => descLower.includes(skill.toLowerCase()));
   const skillHasEvidence = item => typeof item.matched === 'boolean'
     ? item.matched
-    : resumeLower.includes(item.text.toLowerCase());
+    : (confirmedLowerSet.has(item.text.toLowerCase()) || resumeLower.includes(item.text.toLowerCase()));
   const matchedSkills = skillsAssessment.length
     ? skillsAssessment.filter(skillHasEvidence).map(item => item.text)
-    : jobSkills.filter(skill => resumeLower.includes(skill.toLowerCase()));
+    : jobSkills.filter(skill => confirmedLowerSet.has(skill.toLowerCase()) || resumeLower.includes(skill.toLowerCase()));
   const missingSkills = skillsAssessment.length
     ? skillsAssessment.filter(item => !skillHasEvidence(item)).map(item => item.text)
-    : jobSkills.filter(skill => !resumeLower.includes(skill.toLowerCase()));
+    : jobSkills.filter(skill => !confirmedLowerSet.has(skill.toLowerCase()) && !resumeLower.includes(skill.toLowerCase()));
 
   const requirements = normalizeAssessmentItems(
     raw.requirements_assessment || raw.requirements,
@@ -538,6 +554,80 @@ FACTUALITY RULES:
 - You may reorder and rephrase existing skills, experience, leadership, achievements, and business outcomes to emphasize relevance without changing the facts.
 
 Return only the rewritten resume summary.`;
+}
+
+async function draftApplicationAnswer(jobData, question) {
+  const storage = await chrome.storage.local.get(['aiModel', 'apiKey', 'resumeSummary', 'userSkills', 'groqApiKey', 'ollamaBackendUrl', 'ollamaModel']);
+  const resumeSummary = String(storage.resumeSummary || '').trim();
+  const confirmedSkills = Array.isArray(storage.userSkills) ? storage.userSkills.join(', ') : '';
+  const candidateContext = [confirmedSkills ? `Confirmed Skills: ${confirmedSkills}` : '', resumeSummary].filter(Boolean).join('\n');
+
+  if (!candidateContext) {
+    return { success: false, error: 'Add your resume summary or confirmed skills in Profile before drafting answers.' };
+  }
+
+  const cleanQ = String(question || '').trim() || 'Why are you interested in this role and company?';
+  const prompt = `You are a career co-pilot helping a candidate answer a job application screening question concisely and professionally.
+
+CANDIDATE BACKGROUND:
+${candidateContext}
+
+TARGET JOB:
+Role: ${jobData.title || ''}
+Company: ${jobData.company || ''}
+Description: ${(jobData.description || '').substring(0, 1000)}
+
+APPLICATION QUESTION:
+"${cleanQ}"
+
+INSTRUCTIONS:
+- Write a 2-4 sentence tailored answer directly answering the question.
+- Showcase the candidate's genuine matching background and skills.
+- Do not invent facts not present in the candidate background.
+- Return only the answer text ready to paste.`;
+
+  try {
+    const answer = String(await callLLM(storage, prompt) || '').trim();
+    if (!answer) throw new Error('AI returned an empty answer. Please try again.');
+    return { success: true, answer };
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+}
+
+async function draftFollowUpEmail(jobData) {
+  const storage = await chrome.storage.local.get(['aiModel', 'apiKey', 'resumeSummary', 'userSkills', 'groqApiKey', 'ollamaBackendUrl', 'ollamaModel']);
+  const template = ExtensionPolicies.generateFollowUpEmailTemplate(jobData);
+
+  const prompt = `Write a polite, professional 2-paragraph follow-up email to a recruiter.
+
+JOB DETAILS:
+Role: ${jobData.title || ''}
+Company: ${jobData.company || ''}
+Contact Person: ${jobData.contactName || 'Hiring Team'}
+Date Applied: ${jobData.appliedDate || 'recently'}
+Matched Skills: ${(jobData.matchedSkills || []).slice(0, 4).join(', ')}
+
+DEFAULT DRAFT TEMPLATE:
+${template.body}
+
+Refine the template into an elegant, warm, highly polished follow-up email. Return only the email body.`;
+
+  try {
+    const body = String(await callLLM(storage, prompt) || '').trim();
+    return {
+      success: true,
+      subject: template.subject,
+      body: body || template.body
+    };
+  } catch (_) {
+    // Graceful fallback to pure template
+    return {
+      success: true,
+      subject: template.subject,
+      body: template.body
+    };
+  }
 }
 
 async function callLLM(storage, prompt) {

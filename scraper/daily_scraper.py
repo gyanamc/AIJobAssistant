@@ -106,7 +106,7 @@ def insert_one(job: JobRecord, embedding: list | None) -> bool:
                     INSERT INTO job_listings
                         (id, title, company, location, source, description, apply_url, industry, company_size, job_level, job_type, embedding, scraped_at, updated_at)
                     VALUES (:id, :title, :company, :location, :source, :description, :apply_url, :industry, :company_size, :job_level, :job_type,
-                            :emb::vector, NOW(), NOW())
+                            CAST(:emb AS vector), NOW(), NOW())
                     ON CONFLICT (id) DO NOTHING
                 """), {**asdict(job), "emb": emb_str})
             else:
