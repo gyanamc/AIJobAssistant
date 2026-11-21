@@ -35,30 +35,7 @@ def run_test_ddl(sql: str):
 
 @pytest.fixture(scope="session", autouse=True)
 def setup_test_db():
-    run_test_ddl("""
-        CREATE TABLE IF NOT EXISTS resumes (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id VARCHAR(100) NOT NULL,
-            filename VARCHAR(255) NOT NULL,
-            mime_type VARCHAR(100) NOT NULL,
-            file_size INTEGER NOT NULL,
-            file_hash VARCHAR(64) NOT NULL,
-            file_data BLOB NOT NULL,
-            extracted_text TEXT NOT NULL,
-            parsed_info JSON NOT NULL DEFAULT '{}',
-            version INTEGER NOT NULL DEFAULT 1,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    """)
-    run_test_ddl("""
-        CREATE TABLE IF NOT EXISTS candidate_profiles (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            candidate_hash TEXT UNIQUE NOT NULL,
-            email_enc TEXT,
-            summary TEXT
-        )
-    """)
+    bmain.init_db()
     yield
     try:
         if os.path.exists(TEST_DB_FILE):
@@ -68,7 +45,12 @@ def setup_test_db():
 
 @pytest.fixture(autouse=True)
 def clear_resumes():
-    run_test_ddl("DELETE FROM resumes")
+    with test_engine.connect() as conn:
+        conn.execute(text("DELETE FROM resumes"))
+        conn.execute(text("DELETE FROM candidate_skills"))
+        conn.execute(text("DELETE FROM candidate_profiles"))
+        conn.execute(text("DELETE FROM resume_consent"))
+        conn.commit()
     yield
 
 def create_sample_docx(text="Jane Smith, Senior AI Engineer. Skills: Python, PyTorch, LangChain."):
@@ -297,3 +279,143 @@ def test_account_deletion_cleans_up_resumes():
     # Resumes for deleted user must now be empty
     list_res = client.get("/api/v1/resumes", headers=headers)
     assert len(list_res.json()["resumes"]) == 0
+
+def test_auth_session_creation_and_bearer_verification():
+    client = TestClient(app)
+    # Invalid email rejected
+    res_bad = client.post("/api/v1/auth/session", json={"email": "invalid-email"})
+    assert res_bad.status_code == 400
+
+    # Valid session issuance
+    res = client.post("/api/v1/auth/session", json={"email": "alice@example.com", "name": "Alice Doe"})
+    assert res.status_code == 200
+    data = res.json()
+    assert "access_token" in data
+    assert data["token_type"] == "bearer"
+    assert data["user"]["email"] == "alice@example.com"
+    token = data["access_token"]
+
+    # Use this token to access protected endpoint
+    headers = {"Authorization": f"Bearer {token}"}
+    list_res = client.get("/api/v1/resumes", headers=headers)
+    assert list_res.status_code == 200
+    assert list_res.json()["resumes"] == []
+
+def test_comprehensive_candidate_profile_and_skill_classification():
+    client = TestClient(app)
+    # Create authenticated session
+    s_res = client.post("/api/v1/auth/session", json={"email": "bob@example.com", "name": "Bob Builder"})
+    token = s_res.json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    sample_resume = """
+    Bob Builder
+    bob@example.com | +1 555-0199
+    Senior AI/ML Engineer
+    
+    Professional Experience:
+    Senior Software Engineer | Acme AI Corp (2020 - Present)
+    - Architected scalable machine learning microservices with Python, PyTorch, and FastAPI.
+    - Built RAG pipelines and LLM systems with LangChain and Docker.
+    
+    Software Developer | Beta FinTech Inc (2017 - 2020)
+    - Developed payment processing pipelines in Python and PostgreSQL.
+    - Integrated AWS cloud infrastructure with Docker and CI/CD.
+    
+    Education:
+    Bachelor of Science in Computer Science from State University
+    """
+
+    res = client.post(
+        "/api/v1/resumes/upload",
+        headers=headers,
+        files={"file": ("bob_resume.txt", sample_resume.encode("utf-8"), "text/plain")},
+        data={"purpose": "profile_generation", "notice_version": "v2.5.0"}
+    )
+    assert res.status_code == 201
+    res_json = res.json()
+    assert "candidate_profile" in res_json
+    prof = res_json["candidate_profile"]
+
+    # Verify candidate metadata
+    assert prof["candidate"]["name"] != ""
+    assert prof["candidate"]["total_experience_years"] >= 5.0
+    assert prof["candidate"]["seniority"] in ("Senior", "Lead", "Staff / Principal")
+    assert "Fintech & Banking" in prof["domains"] or "AI & Machine Learning" in prof["domains"]
+
+    # Verify skill classification
+    skills = prof["skills"]
+    assert len(skills) > 0
+    supported_skills = [s for s in skills if s["status"] == "resume_supported"]
+    inferred_skills = [s for s in skills if s["status"] == "ai_inferred"]
+    assert len(supported_skills) >= 3
+    assert any(s["name"].lower() == "python" for s in supported_skills)
+    assert any(s["evidence_type"] == "explicit" for s in supported_skills)
+
+    # Fetch candidate profile directly via GET
+    get_prof = client.get("/api/v1/candidate/profile", headers=headers)
+    assert get_prof.status_code == 200
+    p_data = get_prof.json()
+    assert p_data["user_id"] == s_res.json()["user"]["id"]
+    assert len(p_data["skills_summary"]["resume_supported"]) >= 3
+
+def test_candidate_skill_confirmation_and_update():
+    client = TestClient(app)
+    s_res = client.post("/api/v1/auth/session", json={"email": "charlie@example.com"})
+    token = s_res.json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    # Upload resume
+    text_content = "Charlie\nSkills: Python, React\nExperience: 2021 - Present"
+    client.post("/api/v1/resumes/upload", headers=headers, files={"file": ("charlie.txt", text_content.encode(), "text/plain")})
+
+    # Confirm an inferred or new skill (e.g. Next.js via Add & Re-score)
+    conf_res = client.post(
+        "/api/v1/candidate/skills/confirm",
+        headers=headers,
+        json={"skill_name": "Next.js", "category": "frameworks_and_libraries"}
+    )
+    assert conf_res.status_code == 200
+    assert conf_res.json()["classification"] == "user_confirmed"
+
+    # Verify it now appears in user_confirmed summary
+    get_prof = client.get("/api/v1/candidate/profile", headers=headers)
+    assert "Next.js" in get_prof.json()["skills_summary"]["user_confirmed"]
+
+    # Update candidate profile fields
+    up_res = client.put(
+        "/api/v1/candidate/profile",
+        headers=headers,
+        json={"headline": "Principal Architect | Next.js & Python"}
+    )
+    assert up_res.status_code == 200
+    assert client.get("/api/v1/candidate/profile", headers=headers).json()["headline"] == "Principal Architect | Next.js & Python"
+
+def test_candidate_profile_full_lifecycle_and_deletion():
+    client = TestClient(app)
+    s_res = client.post("/api/v1/auth/session", json={"email": "dan@example.com"})
+    token = s_res.json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    # Upload resume
+    client.post("/api/v1/resumes/upload", headers=headers, files={"file": ("dan.txt", b"Dan\nSkills: AWS, Go\nExperience: 2018 - 2023", "text/plain")})
+    assert client.get("/api/v1/candidate/profile", headers=headers).status_code == 200
+
+    # Delete candidate profile completely
+    del_res = client.delete("/api/v1/candidate/profile", headers=headers)
+    assert del_res.status_code == 200
+
+    # Next profile request must 404
+    assert client.get("/api/v1/candidate/profile", headers=headers).status_code == 404
+    # Resumes must be empty
+    assert len(client.get("/api/v1/resumes", headers=headers).json()["resumes"]) == 0
+
+def test_admin_analytics_aggregation():
+    client = TestClient(app)
+    res = client.get("/api/v1/admin/analytics")
+    assert res.status_code == 200
+    data = res.json()
+    assert "total_resumes" in data
+    assert "total_candidate_profiles" in data
+    assert "skills_breakdown" in data
+    assert "top_skills" in data

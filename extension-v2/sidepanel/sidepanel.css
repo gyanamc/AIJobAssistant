@@ -2339,3 +2339,617 @@ html, body {
   border-color: var(--accent);
   color: var(--text);
 }
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   AI JOB ASSISTANT v2.5.0 — RESUME-FIRST ONBOARDING & CANDIDATE PROFILE STYLES
+   ══════════════════════════════════════════════════════════════════════════════ */
+
+/* ── Hero Onboarding Card ─────────────────────────────────────────────────── */
+.hero-onboarding-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 18px 14px;
+  margin-bottom: 16px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+  backdrop-filter: blur(12px);
+  animation: fadeIn 0.3s ease;
+}
+
+.hero-header {
+  text-align: center;
+  margin-bottom: 16px;
+}
+
+.hero-tag {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--tab-profile);
+  background: rgba(244, 63, 94, 0.12);
+  border: 1px solid rgba(244, 63, 94, 0.3);
+  padding: 2px 8px;
+  border-radius: 12px;
+  margin-bottom: 8px;
+}
+
+.hero-title {
+  font-size: 18px;
+  font-weight: 800;
+  color: var(--text);
+  margin: 0 0 4px;
+  line-height: 1.25;
+}
+
+.hero-subtitle {
+  font-size: 12px;
+  color: var(--text-dim);
+  margin: 0;
+}
+
+/* ── Prominent Dropzone ──────────────────────────────────────────────────── */
+.hero-dropzone {
+  border: 2px dashed rgba(244, 63, 94, 0.4);
+  background: rgba(244, 63, 94, 0.03);
+  border-radius: var(--radius);
+  padding: 22px 14px;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.25s ease;
+  margin-bottom: 12px;
+}
+
+.hero-dropzone:hover,
+.hero-dropzone.dragover {
+  border-color: var(--tab-profile);
+  background: rgba(244, 63, 94, 0.08);
+  transform: translateY(-1px);
+  box-shadow: 0 0 16px rgba(244, 63, 94, 0.2);
+}
+
+.hero-dropzone-icon {
+  font-size: 28px;
+  margin-bottom: 6px;
+}
+
+.hero-dropzone-primary {
+  display: block;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text);
+  margin-bottom: 4px;
+}
+
+.hero-dropzone-sub {
+  display: block;
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+/* ── Selected File Preview Card ──────────────────────────────────────────── */
+.hero-file-card {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  margin-bottom: 12px;
+}
+
+.hero-file-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.hero-file-icon {
+  font-size: 18px;
+}
+
+.hero-file-name {
+  display: block;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.hero-file-size {
+  display: block;
+  font-size: 10px;
+  color: var(--text-dim);
+}
+
+.hero-file-change-btn {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 3px 8px;
+  font-size: 10px;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.hero-file-change-btn:hover {
+  border-color: var(--tab-profile);
+  color: var(--tab-profile);
+}
+
+/* ── Hero Inputs & Consent ───────────────────────────────────────────────── */
+.hero-account-row {
+  margin-bottom: 12px;
+}
+
+.hero-input-label {
+  display: block;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+}
+
+.hero-input {
+  width: 100%;
+  padding: 8px 10px;
+  font-size: 12px;
+  background: var(--bg-card2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  box-sizing: border-box;
+}
+
+.hero-input:focus {
+  outline: none;
+  border-color: var(--tab-profile);
+  box-shadow: 0 0 8px rgba(244, 63, 94, 0.25);
+}
+
+.hero-hint {
+  display: block;
+  font-size: 10px;
+  color: var(--text-dim);
+  margin-top: 3px;
+}
+
+.hero-consent-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.hero-consent-row .consent-text {
+  font-size: 10px;
+  line-height: 1.4;
+  color: var(--text-muted);
+}
+
+/* ── Primary Hero CTA ────────────────────────────────────────────────────── */
+.hero-cta-btn {
+  width: 100%;
+  padding: 12px;
+  font-size: 13px;
+  font-weight: 700;
+  color: #fff;
+  background: linear-gradient(135deg, #f43f5e 0%, #e11d48 100%);
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  box-shadow: 0 4px 14px rgba(244, 63, 94, 0.4);
+  transition: all 0.2s ease;
+}
+
+.hero-cta-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 20px rgba(244, 63, 94, 0.6);
+  background: linear-gradient(135deg, #fb7185 0%, #f43f5e 100%);
+}
+
+.hero-cta-btn:active {
+  transform: translateY(0);
+}
+
+/* ── Hero Progress & Status ──────────────────────────────────────────────── */
+.hero-progress-container {
+  margin-top: 12px;
+  padding: 10px;
+  background: var(--bg-elevated);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+}
+
+.hero-progress-track {
+  width: 100%;
+  height: 6px;
+  background: var(--bg-card2);
+  border-radius: 3px;
+  overflow: hidden;
+  margin-bottom: 6px;
+}
+
+.hero-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #f43f5e, #10b981);
+  transition: width 0.3s ease;
+}
+
+.hero-progress-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.hero-spinner {
+  width: 12px;
+  height: 12px;
+  border: 2px solid rgba(244, 63, 94, 0.3);
+  border-top-color: var(--tab-profile);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+/* ── Hero Alerts ─────────────────────────────────────────────────────────── */
+.hero-alert-box {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.hero-alert-box.alert-duplicate {
+  background: rgba(14, 165, 233, 0.12);
+  border: 1px solid var(--tab-analysis);
+  color: var(--text);
+}
+
+.hero-alert-box.alert-error {
+  background: rgba(239, 68, 68, 0.12);
+  border: 1px solid var(--red);
+  color: var(--text);
+}
+
+.alert-btn {
+  margin-left: auto;
+  white-space: nowrap;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 4px 8px;
+  background: var(--bg-card);
+  border: 1px solid currentColor;
+  border-radius: 4px;
+  cursor: pointer;
+  color: inherit;
+}
+
+/* ── Active Profile Hero Card ────────────────────────────────────────────── */
+.active-profile-card {
+  background: var(--bg-card);
+  border: 1px solid var(--tab-saved);
+  border-radius: var(--radius);
+  padding: 14px;
+  margin-bottom: 14px;
+  box-shadow: 0 4px 16px rgba(16, 185, 129, 0.15);
+}
+
+.active-profile-badge {
+  display: inline-block;
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: #10b981;
+  background: rgba(16, 185, 129, 0.12);
+  padding: 2px 6px;
+  border-radius: 10px;
+  margin-bottom: 6px;
+}
+
+.active-profile-headline {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text);
+  margin: 0 0 4px;
+}
+
+.active-profile-meta {
+  font-size: 11px;
+  color: var(--text-dim);
+  margin: 0 0 10px;
+}
+
+.active-profile-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.active-view-btn,
+.active-replace-btn {
+  flex: 1;
+  padding: 6px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.active-view-btn {
+  background: var(--tab-saved);
+  color: #fff;
+  border: none;
+}
+
+.active-replace-btn {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+}
+
+/* ── Candidate Profile View Elements ─────────────────────────────────────── */
+.candidate-profile-card {
+  padding: 14px;
+  margin-bottom: 12px;
+}
+
+.candidate-header-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 10px;
+}
+
+.candidate-name {
+  font-size: 16px;
+  font-weight: 800;
+  color: var(--text);
+  margin: 0 0 2px;
+}
+
+.candidate-headline {
+  font-size: 12px;
+  color: var(--tab-analysis);
+  margin: 0;
+}
+
+.candidate-badges {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+}
+
+.candidate-seniority-badge {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgba(139, 92, 246, 0.15);
+  border: 1px solid var(--tab-tracker);
+  color: var(--tab-tracker);
+}
+
+.candidate-exp-badge {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--bg-elevated);
+  color: var(--text-muted);
+}
+
+.candidate-meta-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  padding: 8px 10px;
+  background: var(--bg-elevated);
+  border-radius: var(--radius-sm);
+  margin-bottom: 10px;
+  font-size: 11px;
+}
+
+.candidate-meta-item .meta-label {
+  color: var(--text-dim);
+  margin-right: 4px;
+}
+
+.candidate-meta-item .meta-value {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.candidate-summary-box {
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+}
+
+.candidate-summary-text {
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--text-muted);
+  margin: 4px 0 0;
+}
+
+/* ── 3-Tier Skills Inventory Styling ─────────────────────────────────────── */
+.skill-tier-group {
+  padding: 8px 10px;
+  background: var(--bg-card2);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+}
+
+.skill-tier-header {
+  margin-bottom: 6px;
+}
+
+.tier-label {
+  font-size: 11px;
+  font-weight: 700;
+  display: block;
+}
+
+.tier-label.tier-supported {
+  color: #10b981;
+}
+
+.tier-label.tier-inferred {
+  color: #f59e0b;
+}
+
+.tier-label.tier-confirmed {
+  color: #8b5cf6;
+}
+
+.tier-desc {
+  font-size: 10px;
+  color: var(--text-dim);
+}
+
+.skill-chip-v2 {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 500;
+  margin: 2px;
+  transition: all 0.15s ease;
+}
+
+.skill-chip-v2.chip-supported {
+  background: rgba(16, 185, 129, 0.12);
+  border: 1px solid rgba(16, 185, 129, 0.4);
+  color: #10b981;
+}
+
+.skill-chip-v2.chip-inferred {
+  background: rgba(245, 158, 11, 0.12);
+  border: 1px dashed rgba(245, 158, 11, 0.5);
+  color: #f59e0b;
+}
+
+.skill-chip-v2.chip-confirmed {
+  background: rgba(139, 92, 246, 0.15);
+  border: 1px solid rgba(139, 92, 246, 0.5);
+  color: #8b5cf6;
+}
+
+.skill-action-confirm {
+  background: #f59e0b;
+  color: #000;
+  font-size: 9px;
+  font-weight: 700;
+  padding: 1px 4px;
+  border-radius: 8px;
+  border: none;
+  cursor: pointer;
+}
+
+.skill-action-remove {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 11px;
+  padding: 0 2px;
+}
+
+.skill-action-remove:hover {
+  color: var(--red);
+}
+
+/* ── Domains, Timeline & Education ───────────────────────────────────────── */
+.domain-badge-item {
+  display: inline-block;
+  font-size: 11px;
+  padding: 3px 8px;
+  background: rgba(14, 165, 233, 0.12);
+  border: 1px solid var(--tab-analysis);
+  border-radius: 4px;
+  color: var(--tab-analysis);
+}
+
+.role-badge-item {
+  display: inline-block;
+  font-size: 11px;
+  padding: 3px 8px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.role-badge-item:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.timeline-item {
+  border-left: 2px solid var(--tab-profile);
+  padding-left: 10px;
+  margin-bottom: 12px;
+  position: relative;
+}
+
+.timeline-item::before {
+  content: '';
+  position: absolute;
+  left: -5px;
+  top: 4px;
+  width: 8px;
+  height: 8px;
+  background: var(--tab-profile);
+  border-radius: 50%;
+}
+
+.timeline-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.timeline-company-date {
+  font-size: 10px;
+  color: var(--text-dim);
+  margin-bottom: 4px;
+}
+
+.timeline-desc {
+  font-size: 11px;
+  color: var(--text-muted);
+  line-height: 1.35;
+}
+
+.active-resume-file-card {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  background: rgba(16, 185, 129, 0.1);
+  border: 1px solid var(--tab-saved);
+  border-radius: var(--radius-sm);
+  margin-bottom: 10px;
+}
+
+.replace-resume-btn {
+  padding: 4px 8px;
+  background: none;
+  border: 1px solid var(--tab-saved);
+  border-radius: 4px;
+  color: var(--tab-saved);
+  font-size: 10px;
+  cursor: pointer;
+}
