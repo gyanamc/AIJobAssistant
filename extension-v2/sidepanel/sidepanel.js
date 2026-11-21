@@ -9,7 +9,18 @@ document.addEventListener('DOMContentLoaded', () => {
   let _trackerFilter = 'all';
   let _trackerSearch = '';
   let _appDetailKey  = null; // id or url of the job being edited
-  const { hasExplicitSharingConsent, consentStorageUpdate, safeExternalUrl } = ExtensionPolicies;
+  let _userSkills    = [];
+  let _superpowerSkills = [];
+  let _suggestedSkills  = [];
+  const {
+    hasExplicitSharingConsent,
+    consentStorageUpdate,
+    safeExternalUrl,
+    extractSkillsFromText,
+    getSuggestedSkills,
+    mergeUserSkills,
+    removeUserSkill
+  } = ExtensionPolicies;
 
   // Theme cycle: dark → light → system → dark
   const THEMES = ['dark', 'light', 'system'];
@@ -50,6 +61,10 @@ document.addEventListener('DOMContentLoaded', () => {
   setupProfile();
   setupTheme();
   initTracker();
+  setupReviewPrompt();
+  checkReviewPrompt();
+  setupApplicationQA();
+  setupFollowUpModal();
   listenForMessages();
 
   // ── Navigation ─────────────────────────────────────────────────────────────
@@ -164,6 +179,7 @@ document.addEventListener('DOMContentLoaded', () => {
       'botRunning', 'aiMode', 'aiModel', 'byokProvider',
       'openaiKey', 'geminiKey', 'anthropicKey',
       'targetRoles', 'targetLocations', 'resumeSummary',
+      'userSkills', 'superpowerSkills', 'suggestedSkills',
       'shareAnonymized', 'shareConsentVersion', 'lastJob', 'theme', 'accentColor'
     ], (data) => {
       // Bot state
@@ -190,6 +206,19 @@ document.addEventListener('DOMContentLoaded', () => {
       if (data.resumeSummary)   document.getElementById('resumeSummary').value   = data.resumeSummary;
       // Historical `true` values predate explicit consent tracking and must be reconfirmed.
       document.getElementById('shareAnonymized').checked = hasExplicitSharingConsent(data);
+
+      _userSkills = Array.isArray(data.userSkills) ? data.userSkills : [];
+      _superpowerSkills = Array.isArray(data.superpowerSkills) ? data.superpowerSkills : [];
+      _suggestedSkills = Array.isArray(data.suggestedSkills)
+        ? data.suggestedSkills
+        : getSuggestedSkills(_userSkills, data.targetRoles || '');
+
+      renderConfirmedSkills(_userSkills, _superpowerSkills);
+      renderSuggestedSkills(_suggestedSkills, _userSkills);
+      updateProfileAttentionBadge(data.resumeSummary, _userSkills);
+      updateProfileReadinessMeter(data.targetRoles, data.targetLocations, data.resumeSummary, _userSkills);
+      updateOnboardingBanner(data.resumeSummary, _userSkills);
+      renderUploadedResumesList();
 
       // Theme
       applyTheme(data.theme || 'dark');
@@ -359,6 +388,25 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // ── Profile ────────────────────────────────────────────────────────────────
   function setupProfile() {
+    setupOnboardingBanner();
+    setupResumeUpload();
+    setupSkillsCuration();
+
+    // Dynamically update readiness meter on input
+    ['targetRoles', 'targetLocations', 'resumeSummary'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) {
+        el.addEventListener('input', () => {
+          const roles = document.getElementById('targetRoles')?.value || '';
+          const locs = document.getElementById('targetLocations')?.value || '';
+          const sum = document.getElementById('resumeSummary')?.value || '';
+          updateProfileReadinessMeter(roles, locs, sum, _userSkills);
+          updateProfileAttentionBadge(sum, _userSkills);
+          updateOnboardingBanner(sum, _userSkills);
+        });
+      }
+    });
+
     document.getElementById('saveProfileBtn').addEventListener('click', async () => {
       const targetRoles     = document.getElementById('targetRoles').value;
       const targetLocations = document.getElementById('targetLocations').value;
@@ -369,14 +417,20 @@ document.addEventListener('DOMContentLoaded', () => {
         targetRoles,
         targetLocations,
         resumeSummary,
+        userSkills: _userSkills,
+        superpowerSkills: _superpowerSkills,
+        suggestedSkills: _suggestedSkills,
         ...consentStorageUpdate(shareAnonymized)
       };
 
       chrome.storage.local.set(profileUpdate, async () => {
         showConfirm('profileSaved');
+        updateProfileAttentionBadge(resumeSummary, _userSkills);
+        updateProfileReadinessMeter(targetRoles, targetLocations, resumeSummary, _userSkills);
+        updateOnboardingBanner(resumeSummary, _userSkills);
 
         // Sync to recruiter platform if consent given
-        if (shareAnonymized && resumeSummary) {
+        if (shareAnonymized && (resumeSummary || _userSkills.length)) {
           try {
             const res = await fetch('https://aijobassistant-production.up.railway.app/api/v1/profile/sync', {
               method: 'POST',
@@ -386,7 +440,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 resumeSummary,
                 targetRoles,
                 targetLocations,
-                skills: resumeSummary // backend extracts skills from summary
+                skills: _userSkills.join(', ') || resumeSummary
               })
             });
             if (res.ok) {
@@ -398,6 +452,461 @@ document.addEventListener('DOMContentLoaded', () => {
         }
       });
     });
+  }
+
+  function updateProfileAttentionBadge(resumeSummary, userSkills = _userSkills) {
+    const navProfile = document.getElementById('navProfile');
+    if (!navProfile) return;
+    const hasResume = Boolean((resumeSummary && resumeSummary.trim().length > 20) || (userSkills && userSkills.length >= 2));
+    navProfile.classList.toggle('needs-attention', !hasResume);
+    navProfile.title = hasResume ? 'Profile' : 'Profile (Action needed: upload resume or confirm skills)';
+  }
+
+  function updateProfileReadinessMeter(roles, locations, summary, userSkills = _userSkills) {
+    const hasSkillsOrSummary = Boolean((userSkills && userSkills.length >= 3) || (summary && summary.trim().length > 20));
+    const hasRoles = Boolean(roles && roles.trim().length > 0);
+    const hasLocations = Boolean(locations && locations.trim().length > 0);
+
+    let score = 0;
+    if (hasSkillsOrSummary) score += 50;
+    if (hasRoles) score += 25;
+    if (hasLocations) score += 25;
+
+    const pctEl = document.getElementById('profileMeterPct');
+    const fillEl = document.getElementById('profileMeterFill');
+    const hintEl = document.getElementById('profileMeterHint');
+
+    if (pctEl) pctEl.textContent = `${score}%`;
+    if (fillEl) fillEl.style.width = `${score}%`;
+    if (hintEl) {
+      if (score === 100) {
+        hintEl.textContent = `Profile complete! ${userSkills.length ? `${userSkills.length} skills confirmed.` : 'Ready for job matching.'}`;
+      } else if (score >= 75) {
+        hintEl.textContent = 'Almost there! Add remaining target details for best results.';
+      } else if (score >= 50) {
+        hintEl.textContent = `${userSkills.length ? `${userSkills.length} skills confirmed!` : 'Resume added!'} Specify target roles & locations.`;
+      } else {
+        hintEl.textContent = 'Upload resume or add key skills to start matching jobs.';
+      }
+    }
+  }
+
+  function updateOnboardingBanner(resumeSummary, userSkills = _userSkills) {
+    const banner = document.getElementById('onboardingBanner');
+    if (!banner) return;
+    const hasResume = Boolean((resumeSummary && resumeSummary.trim().length > 20) || (userSkills && userSkills.length >= 2));
+    banner.classList.toggle('hidden', hasResume);
+  }
+
+  function renderConfirmedSkills(skills = [], superpowers = []) {
+    const container = document.getElementById('confirmedSkillsChips');
+    const countEl = document.getElementById('confirmedSkillsCount');
+    if (!container) return;
+
+    if (countEl) countEl.textContent = String(skills.length);
+    container.replaceChildren();
+
+    if (!skills.length) {
+      const hint = element('span', 'skills-empty-hint', 'No skills confirmed yet. Upload your resume or add skills below.');
+      hint.style.cssText = 'font-size:11px; color:var(--text-dim); padding:4px;';
+      container.appendChild(hint);
+      return;
+    }
+
+    const superSet = new Set((superpowers || []).map(s => String(s).toLowerCase()));
+
+    skills.forEach(skill => {
+      const isSuper = superSet.has(skill.toLowerCase());
+      const chip = element('span', `skill-curate-chip${isSuper ? ' superpower' : ''}`);
+
+      const starBtn = element('button', 'skill-star-btn', isSuper ? '⭐' : '☆');
+      starBtn.title = isSuper ? 'Primary skill (weighted higher)' : 'Star as primary superpower skill';
+      starBtn.type = 'button';
+      starBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        toggleSuperpowerSkill(skill);
+      });
+
+      const label = element('span', 'skill-label-text', skill);
+
+      const delBtn = element('button', 'skill-remove-btn', '✕');
+      delBtn.title = `Remove ${skill}`;
+      delBtn.type = 'button';
+      delBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        removeConfirmedSkill(skill);
+      });
+
+      chip.append(starBtn, label, delBtn);
+      container.appendChild(chip);
+    });
+  }
+
+  function renderSuggestedSkills(suggested = [], confirmed = []) {
+    const container = document.getElementById('suggestedSkillsChips');
+    const box = document.getElementById('suggestedSkillsBox');
+    if (!container) return;
+
+    const confirmedSet = new Set((confirmed || []).map(s => String(s).toLowerCase()));
+    const remaining = (suggested || []).filter(s => !confirmedSet.has(String(s).toLowerCase()));
+
+    container.replaceChildren();
+
+    if (!remaining.length) {
+      if (box) box.classList.add('hidden');
+      return;
+    }
+
+    if (box) box.classList.remove('hidden');
+
+    remaining.slice(0, 10).forEach(skill => {
+      const chip = element('button', 'skill-suggest-chip');
+      chip.type = 'button';
+      const icon = element('span', '', '+');
+      icon.style.fontWeight = 'bold';
+      icon.style.color = 'var(--accent)';
+      const text = element('span', '', ` ${skill}`);
+      chip.append(icon, text);
+      chip.title = `Add ${skill} to your confirmed skills`;
+
+      chip.addEventListener('click', () => {
+        addConfirmedSkill(skill);
+      });
+
+      container.appendChild(chip);
+    });
+  }
+
+  function renderSuggestedRoles(roles = []) {
+    const box = document.getElementById('suggestedRolesBox');
+    const container = document.getElementById('suggestedRolesChips');
+    if (!box || !container) return;
+
+    container.replaceChildren();
+    if (!roles || !roles.length) {
+      box.classList.add('hidden');
+      return;
+    }
+
+    box.classList.remove('hidden');
+    roles.forEach(role => {
+      const pill = element('button', 'role-suggest-pill', `+ ${role}`);
+      pill.type = 'button';
+      pill.title = `Add "${role}" to target roles`;
+      pill.addEventListener('click', () => {
+        const input = document.getElementById('targetRoles');
+        if (input) {
+          const current = (input.value || '').split(',').map(s => s.trim()).filter(Boolean);
+          if (!current.map(c => c.toLowerCase()).includes(role.toLowerCase())) {
+            current.push(role);
+            input.value = current.join(', ');
+            chrome.storage.local.set({ targetRoles: input.value });
+            pill.style.display = 'none';
+          }
+        }
+      });
+      container.appendChild(pill);
+    });
+  }
+
+  function addConfirmedSkill(skill) {
+    if (!skill || !skill.trim()) return;
+    _userSkills = mergeUserSkills(_userSkills, [skill.trim()]);
+    _suggestedSkills = removeUserSkill(_suggestedSkills, skill.trim());
+    chrome.storage.local.set({ userSkills: _userSkills, suggestedSkills: _suggestedSkills }, () => {
+      renderConfirmedSkills(_userSkills, _superpowerSkills);
+      renderSuggestedSkills(_suggestedSkills, _userSkills);
+      updateProfileAttentionBadge(document.getElementById('resumeSummary')?.value, _userSkills);
+      updateOnboardingBanner(document.getElementById('resumeSummary')?.value, _userSkills);
+      const roles = document.getElementById('targetRoles')?.value || '';
+      const locs = document.getElementById('targetLocations')?.value || '';
+      updateProfileReadinessMeter(roles, locs, document.getElementById('resumeSummary')?.value, _userSkills);
+    });
+  }
+
+  function removeConfirmedSkill(skill) {
+    _userSkills = removeUserSkill(_userSkills, skill);
+    _superpowerSkills = removeUserSkill(_superpowerSkills, skill);
+    chrome.storage.local.set({ userSkills: _userSkills, superpowerSkills: _superpowerSkills }, () => {
+      renderConfirmedSkills(_userSkills, _superpowerSkills);
+      const roles = document.getElementById('targetRoles')?.value || '';
+      const freshSuggested = getSuggestedSkills(_userSkills, roles);
+      _suggestedSkills = freshSuggested;
+      renderSuggestedSkills(_suggestedSkills, _userSkills);
+      updateProfileAttentionBadge(document.getElementById('resumeSummary')?.value, _userSkills);
+      updateOnboardingBanner(document.getElementById('resumeSummary')?.value, _userSkills);
+      const locs = document.getElementById('targetLocations')?.value || '';
+      updateProfileReadinessMeter(roles, locs, document.getElementById('resumeSummary')?.value, _userSkills);
+    });
+  }
+
+  function toggleSuperpowerSkill(skill) {
+    const lower = skill.toLowerCase();
+    const index = _superpowerSkills.findIndex(s => s.toLowerCase() === lower);
+    if (index >= 0) {
+      _superpowerSkills.splice(index, 1);
+    } else {
+      _superpowerSkills.push(skill);
+    }
+    chrome.storage.local.set({ superpowerSkills: _superpowerSkills }, () => {
+      renderConfirmedSkills(_userSkills, _superpowerSkills);
+    });
+  }
+
+  function setupSkillsCuration() {
+    const input = document.getElementById('addSkillInput');
+    const addBtn = document.getElementById('addSkillBtn');
+    const clearBtn = document.getElementById('clearAllSkillsBtn');
+
+    if (addBtn && input) {
+      const handleAdd = () => {
+        const val = (input.value || '').trim();
+        if (val) {
+          addConfirmedSkill(val);
+          input.value = '';
+        }
+      };
+      addBtn.addEventListener('click', handleAdd);
+      input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          handleAdd();
+        }
+      });
+    }
+
+    if (clearBtn) {
+      clearBtn.addEventListener('click', () => {
+        _userSkills = [];
+        _superpowerSkills = [];
+        chrome.storage.local.set({ userSkills: [], superpowerSkills: [] }, () => {
+          renderConfirmedSkills([], []);
+          const roles = document.getElementById('targetRoles')?.value || '';
+          _suggestedSkills = getSuggestedSkills([], roles);
+          renderSuggestedSkills(_suggestedSkills, []);
+          const locs = document.getElementById('targetLocations')?.value || '';
+          updateProfileReadinessMeter(roles, locs, document.getElementById('resumeSummary')?.value, []);
+        });
+      });
+    }
+  }
+
+  function setupOnboardingBanner() {
+    const ctaBtn = document.getElementById('onboardingCtaBtn');
+    if (ctaBtn) {
+      ctaBtn.addEventListener('click', () => {
+        switchView('profile');
+      });
+    }
+  }
+
+  function renderUploadedResumesList() {
+    chrome.storage.local.get(['uploadedResumes'], (data) => {
+      const listEl = document.getElementById('uploadedResumesList');
+      if (!listEl) return;
+      const resumes = data.uploadedResumes || [];
+      listEl.replaceChildren();
+      if (!resumes.length) return;
+
+      const header = element('div', 'uploaded-resumes-header', 'Uploaded Resumes:');
+      header.style.cssText = 'font-size:11px; font-weight:600; color:var(--text-muted); margin:8px 0 4px;';
+      listEl.appendChild(header);
+
+      resumes.forEach((res, idx) => {
+        const chip = element('div', 'uploaded-resume-chip');
+        chip.style.cssText = 'display:flex; align-items:center; justify-content:space-between; background:var(--bg-elevated); padding:5px 8px; border-radius:4px; margin-bottom:4px; font-size:11px; border:1px solid var(--border);';
+
+        const info = element('div', 'uploaded-resume-info');
+        const icon = element('span', '', '📄 ');
+        const name = element('strong', '', res.filename || 'Resume');
+        const ver = element('span', '', ` (v${res.version || 1})`);
+        const dateStr = res.uploadedAt ? new Date(res.uploadedAt).toLocaleDateString() : '';
+        const date = element('span', '', ` · ${dateStr}`);
+        date.style.color = 'var(--text-dim)';
+        info.append(icon, name, ver, date);
+
+        const delBtn = element('button', 'uploaded-resume-del', '✕');
+        delBtn.style.cssText = 'background:none; border:none; color:var(--text-dim); cursor:pointer; font-size:12px; padding:0 4px;';
+        delBtn.title = 'Remove record from extension';
+        delBtn.addEventListener('click', () => {
+          resumes.splice(idx, 1);
+          chrome.storage.local.set({ uploadedResumes: resumes }, () => {
+            renderUploadedResumesList();
+          });
+        });
+
+        chip.append(info, delBtn);
+        listEl.appendChild(chip);
+      });
+    });
+  }
+
+  function setupResumeUpload() {
+    const dropzone = document.getElementById('resumeDropzone');
+    const fileInput = document.getElementById('resumeFileInput');
+    const statusBox = document.getElementById('resumeUploadStatus');
+    const consentCb = document.getElementById('resumeStorageConsent');
+    if (!dropzone || !fileInput) return;
+
+    dropzone.addEventListener('click', () => fileInput.click());
+
+    dropzone.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      dropzone.classList.add('dragover');
+    });
+
+    ['dragleave', 'dragend'].forEach(evt => {
+      dropzone.addEventListener(evt, () => dropzone.classList.remove('dragover'));
+    });
+
+    dropzone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      dropzone.classList.remove('dragover');
+      if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+        handleResumeFile(e.dataTransfer.files[0]);
+      }
+    });
+
+    fileInput.addEventListener('change', () => {
+      if (fileInput.files && fileInput.files.length > 0) {
+        handleResumeFile(fileInput.files[0]);
+      }
+    });
+
+    async function handleResumeFile(file) {
+      if (!file) return;
+
+      const validExts = ['.pdf', '.docx', '.txt'];
+      const ext = '.' + file.name.split('.').pop().toLowerCase();
+      if (!validExts.includes(ext)) {
+        showStatus('Invalid file type. Please upload a PDF, DOCX, or TXT document.', 'error');
+        return;
+      }
+
+      if (file.size > 10 * 1024 * 1024) {
+        showStatus('File size exceeds the 10 MB limit.', 'error');
+        return;
+      }
+
+      showStatus(`Uploading & parsing "${file.name}"...`, 'info');
+
+      try {
+        const formData = new FormData();
+        formData.append('file', file);
+
+        const storageData = await new Promise(r => chrome.storage.local.get(['supabaseToken', 'uploadedResumes'], r));
+        const headers = {};
+        if (storageData.supabaseToken) {
+          headers['Authorization'] = `Bearer ${storageData.supabaseToken}`;
+        }
+
+        const backendUrl = 'https://aijobassistant-production.up.railway.app/api/v1/resumes/upload';
+        let uploadSucceeded = false;
+        let responseData = null;
+
+        try {
+          const res = await fetch(backendUrl, {
+            method: 'POST',
+            headers,
+            body: formData
+          });
+          if (res.ok) {
+            responseData = await res.json();
+            uploadSucceeded = true;
+          }
+        } catch (_) {
+          // Backend offline or unreachable
+        }
+
+        if (uploadSucceeded && responseData) {
+          showStatus(`✓ "${file.name}" uploaded & parsed (v${responseData.version || 1})!`, 'success');
+          const summaryText = responseData.extracted_text ? responseData.extracted_text.trim() : '';
+          if (summaryText) {
+            document.getElementById('resumeSummary').value = summaryText;
+          }
+
+          let parsedSkills = responseData.parsed_info?.skills || [];
+          let parsedSuggested = responseData.parsed_info?.suggested_skills || [];
+          let parsedRoles = responseData.parsed_info?.target_roles || [];
+
+          if (!parsedSkills.length && summaryText) {
+            parsedSkills = extractSkillsFromText(summaryText);
+          }
+          if (!parsedSuggested.length) {
+            parsedSuggested = getSuggestedSkills(parsedSkills, parsedRoles.join(', '));
+          }
+
+          _userSkills = mergeUserSkills(_userSkills, parsedSkills);
+          _suggestedSkills = parsedSuggested.filter(s => !_userSkills.map(x => x.toLowerCase()).includes(s.toLowerCase()));
+
+          const updatePayload = {
+            resumeSummary: summaryText,
+            userSkills: _userSkills,
+            suggestedSkills: _suggestedSkills
+          };
+
+          if (parsedRoles.length > 0) {
+            const currentRoles = document.getElementById('targetRoles')?.value || '';
+            if (!currentRoles.trim()) {
+              document.getElementById('targetRoles').value = parsedRoles.join(', ');
+              updatePayload.targetRoles = parsedRoles.join(', ');
+            }
+            renderSuggestedRoles(parsedRoles);
+          }
+
+          renderConfirmedSkills(_userSkills, _superpowerSkills);
+          renderSuggestedSkills(_suggestedSkills, _userSkills);
+          updateProfileAttentionBadge(summaryText, _userSkills);
+          updateOnboardingBanner(summaryText, _userSkills);
+          const roles = document.getElementById('targetRoles')?.value || '';
+          const locs = document.getElementById('targetLocations')?.value || '';
+          updateProfileReadinessMeter(roles, locs, summaryText, _userSkills);
+
+          const existingList = storageData.uploadedResumes || [];
+          existingList.unshift({
+            id: responseData.id,
+            filename: responseData.filename || file.name,
+            version: responseData.version || 1,
+            uploadedAt: responseData.created_at || new Date().toISOString()
+          });
+          updatePayload.uploadedResumes = existingList.slice(0, 10);
+          chrome.storage.local.set(updatePayload, () => {
+            renderUploadedResumesList();
+          });
+        } else if (ext === '.txt') {
+          const text = await file.text();
+          document.getElementById('resumeSummary').value = text;
+          const extracted = extractSkillsFromText(text);
+          const suggested = getSuggestedSkills(extracted, '');
+          _userSkills = mergeUserSkills(_userSkills, extracted);
+          _suggestedSkills = suggested;
+          chrome.storage.local.set({
+            resumeSummary: text,
+            userSkills: _userSkills,
+            suggestedSkills: _suggestedSkills
+          });
+          renderConfirmedSkills(_userSkills, _superpowerSkills);
+          renderSuggestedSkills(_suggestedSkills, _userSkills);
+          updateProfileAttentionBadge(text, _userSkills);
+          updateOnboardingBanner(text, _userSkills);
+          const roles = document.getElementById('targetRoles')?.value || '';
+          const locs = document.getElementById('targetLocations')?.value || '';
+          updateProfileReadinessMeter(roles, locs, text, _userSkills);
+          showStatus(`✓ Loaded text and extracted ${extracted.length} key skills from "${file.name}".`, 'success');
+        } else {
+          showStatus(`File "${file.name}" selected. Note: Connect backend for cloud persistence and automatic PDF/DOCX parsing.`, 'info');
+        }
+      } catch (err) {
+        showStatus(`Upload error: ${err.message}`, 'error');
+      }
+    }
+
+    function showStatus(msg, type) {
+      if (!statusBox) return;
+      statusBox.textContent = msg;
+      statusBox.className = `upload-status-box status-${type}`;
+      statusBox.classList.remove('hidden');
+    }
   }
 
   // ── Action buttons ─────────────────────────────────────────────────────────
@@ -423,6 +932,7 @@ document.addEventListener('DOMContentLoaded', () => {
             document.getElementById('coverLetterText').textContent = res.coverLetter;
             section.classList.remove('hidden');
             section.scrollIntoView({ behavior: 'smooth' });
+            recordMilestone('coverLettersCount');
           }
         });
       }
@@ -446,6 +956,7 @@ document.addEventListener('DOMContentLoaded', () => {
         } else if (res?.success && res.rewritten) {
           output.textContent = res.rewritten;
           addLog('Tailored resume summary ready for review.', 'success');
+          recordMilestone('coverLettersCount');
         } else {
           output.textContent = '';
           error.textContent = res?.error || 'The resume summary could not be generated.';
@@ -586,7 +1097,17 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Score
     const score = jobResult.evaluation?.score;
-    document.getElementById('scorePct').textContent = Number.isFinite(score) ? `${score}%` : 'N/A';
+    const scoreCard = document.querySelector('.score-card');
+    if (scoreCard) scoreCard.classList.toggle('strong-match', Number.isFinite(score) && score >= 80);
+    const scorePctEl = document.getElementById('scorePct');
+    if (Number.isFinite(score)) {
+      animateScoreCount(scorePctEl, score);
+      if (score >= 70) {
+        recordMilestone('positiveScansCount');
+      }
+    } else {
+      scorePctEl.textContent = 'N/A';
+    }
     document.getElementById('scoreExplanation').textContent = jobResult.evaluation?.scoreExplanation
       || 'Compatibility score is based on available resume and job evidence.';
     const coverage = normalizeCoverage(jobResult.evaluation?.scoreCoverage, jobResult.evaluation);
@@ -600,6 +1121,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Skills
     renderSkills(jobResult.evaluation?.matchedSkills || [], jobResult.evaluation?.missingSkills || []);
+    renderSkillGapBridge(jobResult.evaluation?.missingSkills || []);
 
     // Requirements
     renderList('reqsList', jobResult.evaluation?.requirements || []);
@@ -623,6 +1145,22 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('resumeRewriteSection').classList.add('hidden');
     document.getElementById('resumeRewriteText').textContent = '';
     document.getElementById('resumeRewriteError').textContent = '';
+  }
+
+  function animateScoreCount(el, target, duration = 400) {
+    if (!el) return;
+    const startTime = performance.now();
+    function tick(now) {
+      const elapsed = now - startTime;
+      const progress = Math.min(elapsed / duration, 1);
+      const ease = 1 - Math.pow(1 - progress, 3);
+      const current = Math.round(target * ease);
+      el.textContent = `${current}%`;
+      if (progress < 1) {
+        requestAnimationFrame(tick);
+      }
+    }
+    requestAnimationFrame(tick);
   }
 
   function setBar(barId, valId, pct) {
@@ -787,6 +1325,28 @@ document.addEventListener('DOMContentLoaded', () => {
         (job.missingSkills || []).slice(0, 3).forEach(skill => skills.appendChild(element('span', 'sj-skill missing', skill)));
 
         const actions = element('div', 'sj-actions');
+        const statusSelect = element('select', 'quick-status-select');
+        (TrackerLib.APPLICATION_STATUSES || ['Saved', 'Planning to Apply', 'Applied', 'Assessment', 'Interview', 'Offer', 'Rejected', 'Withdrawn']).forEach(st => {
+          const opt = element('option', '', st);
+          opt.value = st;
+          if (st === (job.applicationStatus || 'Saved')) opt.selected = true;
+          statusSelect.appendChild(opt);
+        });
+        statusSelect.addEventListener('change', async (e) => {
+          e.stopPropagation();
+          const newStatus = e.target.value;
+          const key = job.id || job.url || job.applyUrl;
+          await TrackerLib.updateTrackerFields(key, { applicationStatus: newStatus });
+          addLog(`Updated "${job.title || 'Job'}" status to ${newStatus}.`, 'info');
+          if (newStatus === 'Interview' || newStatus === 'Offer') {
+            recordMilestone('trackerMilestonesCount');
+          }
+          if (currentView === 'tracker') {
+            renderTracker(_trackerFilter, _trackerSearch);
+          }
+        });
+        actions.appendChild(statusSelect);
+
         const applyUrl = safeExternalUrl(job.applyUrl || job.url);
         if (applyUrl) {
           const apply = element('a', 'sj-apply-btn', 'Apply ↗');
@@ -796,6 +1356,14 @@ document.addEventListener('DOMContentLoaded', () => {
           actions.appendChild(apply);
         }
         if (job.contactEmail) actions.appendChild(element('span', 'sj-email', `✉ ${job.contactEmail}`));
+        const followUpBtn = element('button', 'sj-expand-btn', '✉️ Follow-Up');
+        followUpBtn.title = 'Draft recruiter follow-up email';
+        followUpBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          openFollowUpModal(job);
+        });
+        actions.appendChild(followUpBtn);
+
         const expand = element('button', 'sj-expand-btn', 'Details ▾');
         expand.dataset.idx = String(idx);
         const remove = element('button', 'sj-delete-btn', '✕');
@@ -1286,6 +1854,11 @@ document.addEventListener('DOMContentLoaded', () => {
     });
     actions.appendChild(compareBtn);
 
+    const followUpBtn = element('button', 'sj-expand-btn', '✉️ Follow-Up');
+    followUpBtn.title = 'Draft recruiter follow-up email';
+    followUpBtn.addEventListener('click', () => openFollowUpModal(job));
+    actions.appendChild(followUpBtn);
+
     const applyUrl = safeExternalUrl(job.applyUrl || job.url);
     if (applyUrl) {
       const applyLink = element('a', 'sj-apply-btn', 'Apply ↗');
@@ -1352,6 +1925,9 @@ document.addEventListener('DOMContentLoaded', () => {
     };
     TrackerLib.updateTrackerFields(_appDetailKey, updates)
       .then(() => {
+        if (updates.applicationStatus === 'Interview' || updates.applicationStatus === 'Offer') {
+          recordMilestone('trackerMilestonesCount');
+        }
         closeAppDetail();
         renderTracker(_trackerFilter, _trackerSearch);
       })
@@ -1482,6 +2058,309 @@ document.addEventListener('DOMContentLoaded', () => {
     });
     table.appendChild(tbody);
     container.appendChild(table);
+  }
+
+  // ── Delighted User Review System ───────────────────────────────────────────
+  function recordMilestone(metricKey) {
+    chrome.storage.local.get(['reviewPromptState'], (data) => {
+      const state = data.reviewPromptState || {
+        hasReviewed: false,
+        reviewOptOut: false,
+        lastPromptedAt: null,
+        positiveScansCount: 0,
+        coverLettersCount: 0,
+        trackerMilestonesCount: 0
+      };
+
+      if (state.hasReviewed || state.reviewOptOut) return;
+
+      state[metricKey] = (Number(state[metricKey]) || 0) + 1;
+      chrome.storage.local.set({ reviewPromptState: state }, () => {
+        checkReviewPrompt(state);
+      });
+    });
+  }
+
+  function checkReviewPrompt(stateOverride) {
+    const runCheck = (state) => {
+      if (!ExtensionPolicies.shouldShowReviewPrompt(state)) return;
+
+      const card = document.getElementById('reviewPromptCard');
+      if (!card) return;
+
+      const step1 = document.getElementById('reviewStep1');
+      const step2Happy = document.getElementById('reviewStep2Happy');
+      const step2Feedback = document.getElementById('reviewStep2Feedback');
+
+      if (step1) step1.classList.remove('hidden');
+      if (step2Happy) step2Happy.classList.add('hidden');
+      if (step2Feedback) step2Feedback.classList.add('hidden');
+      card.classList.remove('hidden');
+
+      state.lastPromptedAt = Date.now();
+      chrome.storage.local.set({ reviewPromptState: state });
+    };
+
+    if (stateOverride) {
+      runCheck(stateOverride);
+    } else {
+      chrome.storage.local.get(['reviewPromptState'], (data) => {
+        runCheck(data.reviewPromptState || {});
+      });
+    }
+  }
+
+  function setupReviewPrompt() {
+    const card = document.getElementById('reviewPromptCard');
+    if (!card) return;
+
+    // Dismiss button (✕)
+    document.getElementById('reviewDismissBtn')?.addEventListener('click', () => {
+      card.classList.add('hidden');
+      chrome.storage.local.get(['reviewPromptState'], (data) => {
+        const state = data.reviewPromptState || {};
+        state.lastPromptedAt = Date.now();
+        chrome.storage.local.set({ reviewPromptState: state });
+      });
+    });
+
+    // Step 1: "Loving it! 😊"
+    document.getElementById('reviewStepYesBtn')?.addEventListener('click', () => {
+      document.getElementById('reviewStep1')?.classList.add('hidden');
+      document.getElementById('reviewStep2Happy')?.classList.remove('hidden');
+    });
+
+    // Step 1: "Needs work 💬"
+    document.getElementById('reviewStepNoBtn')?.addEventListener('click', () => {
+      document.getElementById('reviewStep1')?.classList.add('hidden');
+      document.getElementById('reviewStep2Feedback')?.classList.remove('hidden');
+    });
+
+    // Step 2A: "Rate on Web Store"
+    document.getElementById('reviewRateStoreBtn')?.addEventListener('click', () => {
+      card.classList.add('hidden');
+      const extId = chrome.runtime?.id || '';
+      const url = ExtensionPolicies.getWebStoreReviewUrl(extId);
+      window.open(url, '_blank');
+      chrome.storage.local.get(['reviewPromptState'], (data) => {
+        const state = data.reviewPromptState || {};
+        state.hasReviewed = true;
+        chrome.storage.local.set({ reviewPromptState: state });
+      });
+    });
+
+    // Step 2A: "Maybe later"
+    document.getElementById('reviewLaterBtn')?.addEventListener('click', () => {
+      card.classList.add('hidden');
+      chrome.storage.local.get(['reviewPromptState'], (data) => {
+        const state = data.reviewPromptState || {};
+        state.lastPromptedAt = Date.now();
+        chrome.storage.local.set({ reviewPromptState: state });
+      });
+    });
+
+    // Step 2B: "Send Feedback"
+    document.getElementById('reviewSendFeedbackBtn')?.addEventListener('click', () => {
+      card.classList.add('hidden');
+      chrome.storage.local.get(['reviewPromptState'], (data) => {
+        const state = data.reviewPromptState || {};
+        state.hasReviewed = true;
+        chrome.storage.local.set({ reviewPromptState: state });
+      });
+    });
+
+    // Step 2B: "Dismiss"
+    document.getElementById('reviewFeedbackDismissBtn')?.addEventListener('click', () => {
+      card.classList.add('hidden');
+      chrome.storage.local.get(['reviewPromptState'], (data) => {
+        const state = data.reviewPromptState || {};
+        state.hasReviewed = true;
+        chrome.storage.local.set({ reviewPromptState: state });
+      });
+    });
+
+    // Settings voluntary "Rate on Chrome Web Store" button
+    document.getElementById('settingsRateBtn')?.addEventListener('click', () => {
+      const extId = chrome.runtime?.id || '';
+      const url = ExtensionPolicies.getWebStoreReviewUrl(extId);
+      window.open(url, '_blank');
+      chrome.storage.local.get(['reviewPromptState'], (data) => {
+        const state = data.reviewPromptState || {};
+        state.hasReviewed = true;
+        chrome.storage.local.set({ reviewPromptState: state });
+      });
+    });
+  }
+
+  // ── 1-Click Skill Gap Fixer & Bridge ───────────────────────────────────────
+  function renderSkillGapBridge(missingSkills = []) {
+    const bridgeBox = document.getElementById('skillGapBridgeBox');
+    const bridgeChips = document.getElementById('skillGapBridgeChips');
+    if (!bridgeBox || !bridgeChips) return;
+
+    bridgeChips.replaceChildren();
+
+    const confirmedLower = new Set(_userSkills.map(s => String(s).toLowerCase().trim()));
+    const unconfirmedMissing = (missingSkills || []).filter(s => !confirmedLower.has(String(s).toLowerCase().trim()));
+
+    if (!unconfirmedMissing.length) {
+      bridgeBox.classList.add('hidden');
+      return;
+    }
+
+    bridgeBox.classList.remove('hidden');
+
+    unconfirmedMissing.slice(0, 6).forEach(skill => {
+      const btn = element('button', 'skill-suggest-chip');
+      btn.type = 'button';
+      const icon = element('span', '', '+');
+      icon.style.fontWeight = 'bold';
+      icon.style.color = 'var(--accent)';
+      const text = element('span', '', ` Add ${skill} & Re-score`);
+      btn.append(icon, text);
+      btn.title = `Add ${skill} to your confirmed skills and re-score this job`;
+
+      btn.addEventListener('click', () => {
+        addConfirmedSkill(skill);
+
+        if (currentJob && currentJob.evaluation) {
+          const evalObj = currentJob.evaluation;
+          if (Array.isArray(evalObj.missingSkills)) {
+            evalObj.missingSkills = evalObj.missingSkills.filter(s => String(s).toLowerCase() !== String(skill).toLowerCase());
+          }
+          if (Array.isArray(evalObj.matchedSkills) && !evalObj.matchedSkills.some(s => String(s).toLowerCase() === String(skill).toLowerCase())) {
+            evalObj.matchedSkills.push(skill);
+          }
+          const prevScore = Number.isFinite(evalObj.score) ? evalObj.score : 60;
+          const newScore = Math.min(98, prevScore + 10);
+          evalObj.score = newScore;
+          currentJob.score = newScore;
+          currentJob.matchedSkills = evalObj.matchedSkills;
+          currentJob.missingSkills = evalObj.missingSkills;
+
+          chrome.storage.local.set({ lastJob: currentJob });
+          addLog(`Added "${skill}" to confirmed profile! Re-scored job fit to ${newScore}%.`, 'success');
+          renderJobAnalysis(currentJob);
+        }
+      });
+
+      bridgeChips.appendChild(btn);
+    });
+  }
+
+  // ── Recruiter Follow-Up Modal ──────────────────────────────────────────────
+  function openFollowUpModal(job = {}) {
+    const modal = document.getElementById('followUpModal');
+    const subjInput = document.getElementById('followUpSubjectInput');
+    const bodyText = document.getElementById('followUpBodyTextarea');
+    const openMailBtn = document.getElementById('followUpOpenMailBtn');
+    if (!modal) return;
+
+    const { subject, body } = ExtensionPolicies.generateFollowUpEmailTemplate(job);
+    if (subjInput) subjInput.value = subject;
+    if (bodyText) bodyText.value = body;
+
+    const updateMailto = () => {
+      const recipient = job.contactEmail || '';
+      const currentSubj = subjInput?.value || subject;
+      const currentBody = bodyText?.value || body;
+      const mailtoUrl = `mailto:${encodeURIComponent(recipient)}?subject=${encodeURIComponent(currentSubj)}&body=${encodeURIComponent(currentBody)}`;
+      if (openMailBtn) {
+        openMailBtn.href = mailtoUrl;
+      }
+    };
+
+    updateMailto();
+    subjInput?.addEventListener('input', updateMailto);
+    bodyText?.addEventListener('input', updateMailto);
+
+    modal.classList.remove('hidden');
+  }
+
+  function setupFollowUpModal() {
+    const modal = document.getElementById('followUpModal');
+    const closeBtn = document.getElementById('followUpClose');
+    const copyBtn = document.getElementById('followUpCopyBtn');
+
+    if (closeBtn) {
+      closeBtn.addEventListener('click', () => {
+        modal?.classList.add('hidden');
+      });
+    }
+
+    if (copyBtn) {
+      copyBtn.addEventListener('click', () => {
+        const subj = document.getElementById('followUpSubjectInput')?.value || '';
+        const body = document.getElementById('followUpBodyTextarea')?.value || '';
+        const fullText = `Subject: ${subj}\n\n${body}`;
+        navigator.clipboard.writeText(fullText).then(() => {
+          addLog('Follow-up email copied to clipboard.', 'success');
+          copyBtn.textContent = '✓ Copied!';
+          setTimeout(() => { copyBtn.textContent = '📋 Copy Email'; }, 2000);
+        });
+      });
+    }
+  }
+
+  // ── Screening Q&A Assistant ────────────────────────────────────────────────
+  function setupApplicationQA() {
+    const select = document.getElementById('commonQuestionsSelect');
+    const input = document.getElementById('customQuestionInput');
+    const draftBtn = document.getElementById('draftAnswerBtn');
+    const copyBtn = document.getElementById('copyQaAnswerBtn');
+    const answerBox = document.getElementById('qaAnswerBox');
+    const answerText = document.getElementById('qaAnswerText');
+
+    if (select && input) {
+      select.addEventListener('change', () => {
+        if (select.value) {
+          input.value = select.value;
+        }
+      });
+    }
+
+    if (draftBtn) {
+      draftBtn.addEventListener('click', () => {
+        const question = (input?.value || select?.value || '').trim();
+        if (!question) {
+          addLog('Please select or enter an application question.', 'warn');
+          return;
+        }
+        if (!currentJob) {
+          addLog('Select or view a job first to tailor your screening answer.', 'warn');
+          return;
+        }
+
+        showLoading('Drafting tailored screening answer...');
+        chrome.runtime.sendMessage({
+          type: 'DRAFT_APPLICATION_ANSWER',
+          data: { jobData: currentJob, question }
+        }, (res) => {
+          hideLoading();
+          if (chrome.runtime.lastError) {
+            addLog('Could not draft answer: ' + chrome.runtime.lastError.message, 'error');
+            return;
+          }
+          if (res && res.success && res.answer) {
+            if (answerText) answerText.textContent = res.answer;
+            if (answerBox) answerBox.classList.remove('hidden');
+            addLog('Screening answer drafted successfully!', 'success');
+          } else {
+            addLog('Answer draft failed: ' + (res?.error || 'Unknown error'), 'error');
+          }
+        });
+      });
+    }
+
+    if (copyBtn && answerText) {
+      copyBtn.addEventListener('click', () => {
+        navigator.clipboard.writeText(answerText.textContent).then(() => {
+          addLog('Screening answer copied to clipboard.', 'success');
+          copyBtn.textContent = '✓ Copied!';
+          setTimeout(() => { copyBtn.textContent = 'Copy'; }, 2000);
+        });
+      });
+    }
   }
 
 });

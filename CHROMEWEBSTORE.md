@@ -1,6 +1,6 @@
 # Chrome Web Store Listing — AI Job Assistant
 
-> Last Updated: 2026-11-08
+> Last Updated: 2026-11-20 (Version 2.3.0)
 
 ## Store Listing
 

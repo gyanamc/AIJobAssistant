@@ -21,6 +21,7 @@
   document.__ajaRunning = true;
 
   let scrapeTimer = null;
+  let badgeInterval = null;
   let tickRunning = false;
   let publicJobSent = false;
   const publicJobsSeen = new Set();
@@ -36,8 +37,60 @@
   function retireIfDead() {
     if (isExtensionAlive()) return false;
     stopLoop();
+    if (badgeInterval) clearInterval(badgeInterval);
     return true;
   }
+
+  function renderLinkedInSearchBadges() {
+    if (!isExtensionAlive()) return;
+    try {
+      chrome.storage.local.get(['userSkills', 'targetRoles'], (data) => {
+        if (chrome.runtime.lastError || !data) return;
+        const skills = data.userSkills || [];
+        const roles = data.targetRoles || '';
+        if (!skills.length && !roles) return;
+
+        const cards = document.querySelectorAll(
+          '.job-card-container, li[data-occludable-job-id], div[role="button"][componentkey], .jobs-search-results-list__list-item'
+        );
+
+        cards.forEach((card) => {
+          if (card.querySelector('.aija-search-badge')) return;
+
+          const titleEl = card.querySelector(
+            'a.job-card-list__title, .artdeco-entity-lockup__title, .job-card-container__link, strong, h3'
+          );
+          if (!titleEl) return;
+
+          const titleText = (titleEl.innerText || '').trim();
+          if (titleText.length < 3) return;
+
+          const snippetText = (card.innerText || '').trim();
+          const calculateMatch = (typeof ExtensionPolicies !== 'undefined' && ExtensionPolicies.calculateSearchCardMatchHeuristic)
+            ? ExtensionPolicies.calculateSearchCardMatchHeuristic
+            : null;
+
+          const score = calculateMatch
+            ? calculateMatch(titleText, snippetText, skills, roles)
+            : 70;
+
+          const badge = document.createElement('span');
+          badge.className = 'aija-search-badge';
+          const isHigh = score >= 75;
+          badge.style.cssText = 'display:inline-flex;align-items:center;gap:2px;background:' +
+            (isHigh ? '#00c85320' : '#ff980020') + ';border:1px solid ' +
+            (isHigh ? '#00c85380' : '#ff980080') + ';color:' +
+            (isHigh ? '#00c853' : '#ff9800') + ';border-radius:10px;padding:1px 6px;font-size:10px;font-weight:700;margin-left:6px;vertical-align:middle;white-space:nowrap;pointer-events:none;';
+          badge.textContent = `⚡ ${score}%`;
+          titleEl.appendChild(badge);
+        });
+      });
+    } catch (_) {}
+  }
+
+  // Start periodic search badge scan
+  badgeInterval = setInterval(renderLinkedInSearchBadges, 3000);
+  setTimeout(renderLinkedInSearchBadges, 1000);
 
   function extLog(msg) {
     if (!isExtensionAlive()) return;

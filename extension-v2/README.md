@@ -1,4 +1,28 @@
-# AI Job Assistant Extension (v2.1.0)
+# AI Job Assistant Extension (v2.3.0)
+
+## v2.3.0 release summary (November 20, 2026)
+
+- **1-Click Skill Gap Fixer & Instant Re-Scoring**: In the job analysis view, missing skills are presented with interactive `+ Add & Re-score` buttons, letting users add unlisted experience directly to their profile and re-score the job fit in real time.
+- **In-Page Search Match Badges on LinkedIn & Naukri**: Displays instant fit badges (`⚡ 85% Match`) directly beside job titles in LinkedIn and Naukri search results lists, eliminating tedious manual clicking.
+- **Recruiter Follow-Up Email Generator**: 1-click tailored email drafting for tracked and saved jobs with direct copy-to-clipboard and `mailto:` launcher.
+- **Screening Q&A Assistant**: Automatically drafts concise, professional answers to common screening questions (e.g. LinkedIn Easy Apply, Workday) tailored to the candidate's verified profile and active job posting.
+
+## v2.2.1 release summary (November 18, 2026)
+
+- **Interactive Key Skills Review**: Automatic resume parsing extracts core candidate skills into an interactive curation workspace where users can review, confirm, remove (`✕`), or highlight primary skills (`⭐ Superpower`).
+- **AI-Suggested Complementary Skills**: Dynamic recommendations of high-demand complementary skills and detected target roles tailored to the candidate's verified skill cluster.
+- **Enhanced Matching Accuracy**: Confirmed skills are directly integrated into the background matching engine (`skillsScore`, `matchedSkills`, `missingSkills`) for precision job alignment on LinkedIn and Naukri.
+- **Milestone-Triggered Rating & Review**: A respectful, two-step feedback prompt triggering only upon positive milestones (such as application status reaching Interview or Offer), featuring a 14-day snooze cooldown and direct feedback routing.
+
+## v2.2.0 release summary (November 16, 2026)
+
+- **Backend Resume Persistence**: Every resume uploaded via the extension is securely persisted in PostgreSQL as binary (`BYTEA`) along with metadata (SHA-256 hash, file size, MIME type, versioning) and auto-extracted text from PDF, DOCX, and TXT files.
+- **Pulsing Profile Attention Badge**: The Profile tab now features an interactive pulsating badge when the user has not yet uploaded or provided a resume summary, guiding first-time users.
+- **Profile Readiness Meter**: Visual completion progress bar dynamically calculating profile readiness (Resume 50%, Target Roles 25%, Locations 25%) with helpful feedback.
+- **Onboarding Banner**: An intuitive setup card in the idle view directing users to complete their profile before job evaluation.
+- **Interactive SaaS Tab Indicators**: Distinct SaaS accent color badges and top border lines for all 7 navigation tabs (`Analysis`, `Saved`, `Tracker`, `Compare`, `Log`, `Settings`, `Profile`) across dark, light, and system themes.
+- **Quick Application Status Dropdown**: Saved job cards now feature 1-click status updating directly in the Saved jobs list, updating the application tracker instantly.
+- **Animated Fit Score & Strong Match Glow**: Evaluated job cards feature animated score count-ups and high-affinity glow indicators for matches >= 80%.
 
 ## v2.1.0 release summary (November 8, 2026)
 
