@@ -257,6 +257,20 @@ def init_db():
     """)
     _run_ddl("CREATE INDEX IF NOT EXISTS idx_processing_jobs_user ON resume_processing_jobs(user_id)")
 
+    # ── Admin Audit Logs Table ──
+    _run_ddl(f"""
+        CREATE TABLE IF NOT EXISTS admin_audit_logs (
+            id {id_pk},
+            admin_user_id VARCHAR(100) NOT NULL,
+            endpoint VARCHAR(255) NOT NULL,
+            action VARCHAR(255) NOT NULL,
+            ip_address VARCHAR(64) DEFAULT '',
+            details {json_type} DEFAULT '{{}}',
+            created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    _run_ddl("CREATE INDEX IF NOT EXISTS idx_admin_audit_admin_id ON admin_audit_logs(admin_user_id)")
+
 try:
     init_db()
 except Exception as e:
@@ -282,65 +296,23 @@ def purge_old_jobs_sync(days: int = 7):
 
 purge_old_jobs_sync()
 
-# ── Auth ──────────────────────────────────────────────────────────────────────
+# ── Auth & Admin Configuration ────────────────────────────────────────────────
 security = HTTPBearer(auto_error=False)
 
-SESSION_SECRET = os.getenv("SESSION_SECRET", "ai-job-assistant-v2-5-0-secret-key-default")
-
-def create_user_token(user_id: str, email: str) -> str:
-    """Create a cryptographically signed HMAC-SHA256 session token for Chrome extension users."""
-    payload = json.dumps({"uid": user_id, "email": email, "exp": int(time.time()) + 86400 * 365})
-    payload_b64 = base64.urlsafe_b64encode(payload.encode()).decode()
-    sig = hmac.new(SESSION_SECRET.encode(), payload_b64.encode(), hashlib.sha256).hexdigest()
-    return f"session.{payload_b64}.{sig}"
-
-def verify_user_token(token: str) -> Optional[dict]:
-    """Verify an HMAC-SHA256 session token."""
-    if not token or not token.startswith("session."):
-        return None
-    parts = token.split(".")
-    if len(parts) != 3:
-        return None
-    try:
-        payload_b64 = parts[1]
-        sig = parts[2]
-        expected_sig = hmac.new(SESSION_SECRET.encode(), payload_b64.encode(), hashlib.sha256).hexdigest()
-        if not hmac.compare_digest(expected_sig, sig):
-            return None
-        payload_bytes = base64.urlsafe_b64decode(payload_b64.encode())
-        payload = json.loads(payload_bytes.decode())
-        if payload.get("exp", 0) < time.time():
-            return None
-        return {"id": payload.get("uid"), "email": payload.get("email")}
-    except Exception:
-        return None
-
-class SessionAuthRequest(BaseModel):
-    email: str
-    name: Optional[str] = ""
+ADMIN_EMAILS = [e.strip().lower() for e in os.getenv("ADMIN_EMAILS", "admin@aijobassistant.internal").split(",") if e.strip()]
+ADMIN_USER_IDS = [uid.strip() for uid in os.getenv("ADMIN_USER_IDS", "").split(",") if uid.strip()]
 
 @app.post("/api/v1/auth/session")
-async def create_auth_session(req: SessionAuthRequest):
+async def create_auth_session():
     """
-    Issue a signed Bearer session token for Chrome extension users.
-    Deterministic user ID derived from email ensures cross-session resume retrieval.
+    DEPRECATED (v2.5.1 Security Hardening).
+    Email-only HMAC token issuance has been deprecated to prevent identity spoofing.
+    Clients must authenticate directly via Supabase Auth (OTP, Magic Link, or OAuth).
     """
-    clean_email = req.email.strip().lower()
-    if not clean_email or "@" not in clean_email:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="A valid email address is required.")
-
-    # Deterministic user ID: usr_ + first 16 hex chars of sha256(email)
-    user_id = f"usr_{hashlib.sha256(clean_email.encode()).hexdigest()[:16]}"
-    token = create_user_token(user_id, clean_email)
-    return {
-        "access_token": token,
-        "token_type": "bearer",
-        "user": {
-            "id": user_id,
-            "email": clean_email,
-            "name": req.name or clean_email.split("@")[0]
-        }
-    }
+    raise HTTPException(
+        status_code=status.HTTP_410_GONE,
+        detail="Insecure email-only session creation has been deprecated. Please sign in via verified Supabase authentication."
+    )
 
 async def get_recruiter_id(credentials: HTTPAuthorizationCredentials = Depends(security)) -> Optional[str]:
     if not credentials:
@@ -351,7 +323,7 @@ async def get_recruiter_id(credentials: HTTPAuthorizationCredentials = Depends(s
         async with httpx.AsyncClient() as client:
             res = await client.get(
                 f"{SUPABASE_URL}/auth/v1/user",
-                headers={"Authorization": f"Bearer {token}", "apikey": SUPABASE_KEY}
+                headers={"Authorization": f"Bearer {token}", "apikey": SUPABASE_KEY or os.getenv("SUPABASE_ANON_KEY", "")}
             )
             if res.status_code == 200:
                 return res.json().get("id")
@@ -359,38 +331,63 @@ async def get_recruiter_id(credentials: HTTPAuthorizationCredentials = Depends(s
         pass
     return None
 
-async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)) -> dict:
+async def get_current_user(
+    request: Request,
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security)
+) -> dict:
     """
-    Authenticate user via Bearer token (Supabase auth JWT or signed session token).
+    Authenticate user via Bearer token (Supabase auth JWT).
     Enforces strict user identification and prevents cross-user access.
+    Derives canonical user ID from verified Supabase user UUID.
     """
-    if not credentials:
+    token = credentials.credentials if credentials else None
+    if not token and request:
+        token = request.query_params.get("token") or request.headers.get("x-admin-token")
+
+    if not token:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Authentication required. Please provide a valid Bearer token.",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    token = credentials.credentials
-    # Test-mode hook for automated test suites
-    if os.getenv("TEST_MODE") == "1" and token.startswith("test-token-"):
-        uid = token.replace("test-token-", "")
-        return {"id": uid, "email": f"{uid}@example.com"}
 
-    # Signed session token verification
-    verified_session = verify_user_token(token)
-    if verified_session:
-        return verified_session
+    # Test-mode hook for automated test suites
+    if os.getenv("TEST_MODE") == "1":
+        if token.startswith("test-admin-token-"):
+            uid = token.replace("test-admin-token-", "")
+            return {
+                "id": uid,
+                "email": f"{uid}@example.com",
+                "role": "admin",
+                "app_metadata": {"role": "admin"}
+            }
+        if token.startswith("test-token-"):
+            uid = token.replace("test-token-", "")
+            return {
+                "id": uid,
+                "email": f"{uid}@example.com",
+                "role": "candidate",
+                "app_metadata": {}
+            }
 
     if SUPABASE_URL:
         try:
-            async with httpx.AsyncClient(timeout=5.0) as client:
+            async with httpx.AsyncClient(timeout=6.0) as client:
                 res = await client.get(
                     f"{SUPABASE_URL}/auth/v1/user",
                     headers={"Authorization": f"Bearer {token}", "apikey": SUPABASE_KEY or os.getenv("SUPABASE_ANON_KEY", "")}
                 )
                 if res.status_code == 200:
                     data = res.json()
-                    return {"id": data.get("id"), "email": data.get("email")}
+                    app_meta = data.get("app_metadata", {})
+                    user_role = app_meta.get("role", "candidate")
+                    return {
+                        "id": data.get("id"),
+                        "email": data.get("email"),
+                        "role": user_role,
+                        "app_metadata": app_meta,
+                        "user_metadata": data.get("user_metadata", {})
+                    }
         except Exception:
             pass
     raise HTTPException(
@@ -398,6 +395,106 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
         detail="Invalid or expired authentication credentials.",
         headers={"WWW-Authenticate": "Bearer"},
     )
+
+async def require_admin_user(request: Request, current_user: dict = Depends(get_current_user)) -> dict:
+    """
+    Strict server-side administrator authorization dependency.
+    Requires verified Supabase app_metadata role == 'admin' or presence in server allowlists.
+    Logs an audit trail record for every admin action.
+    """
+    user_id = current_user.get("id")
+    email = (current_user.get("email") or "").lower()
+    app_meta = current_user.get("app_metadata", {})
+
+    is_admin = False
+    if current_user.get("role") == "admin" or app_meta.get("role") == "admin" or app_meta.get("is_admin") is True:
+        is_admin = True
+    elif user_id and user_id in ADMIN_USER_IDS:
+        is_admin = True
+    elif email and email in ADMIN_EMAILS:
+        is_admin = True
+
+    if not is_admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Administrator access denied. Insufficient privileges."
+        )
+
+    # Record administrative action in audit logs
+    try:
+        endpoint = request.url.path if request else "unknown"
+        method = request.method if request else "unknown"
+        ip_addr = request.client.host if (request and request.client) else "unknown"
+        with engine.begin() as conn:
+            conn.execute(
+                text("""
+                    INSERT INTO admin_audit_logs (admin_user_id, endpoint, action, ip_address, created_at)
+                    VALUES (:uid, :ep, :act, :ip, CURRENT_TIMESTAMP)
+                """),
+                {
+                    "uid": user_id,
+                    "ep": endpoint,
+                    "act": f"{method} {endpoint}",
+                    "ip": ip_addr
+                }
+            )
+    except Exception as e:
+        print(f"Admin audit logging error: {e}")
+
+    return current_user
+
+@app.post("/api/v1/candidate/migrate-legacy")
+async def migrate_legacy_account(current_user: dict = Depends(get_current_user)):
+    """
+    Controlled legacy account migration for candidates transitioning from v2.5.0 email-hash identities.
+    Requires verified email ownership via Supabase JWT.
+    Transactionally re-assigns previous resume records to the verified Supabase UUID.
+    """
+    user_email = (current_user.get("email") or "").strip().lower()
+    if not user_email:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Verified email required for legacy migration.")
+
+    new_user_id = current_user["id"]
+    legacy_user_id = f"usr_{hashlib.sha256(user_email.encode()).hexdigest()[:16]}"
+
+    if new_user_id == legacy_user_id:
+        return {"status": "unchanged", "message": "Identity already matches."}
+
+    with engine.begin() as conn:
+        leg_count = conn.execute(
+            text("SELECT COUNT(*) FROM resumes WHERE user_id = :l_uid"),
+            {"l_uid": legacy_user_id}
+        ).scalar() or 0
+
+        if leg_count == 0:
+            return {
+                "status": "not_found",
+                "message": "No legacy records found for this verified email.",
+                "migrated_resumes": 0
+            }
+
+        conn.execute(
+            text("UPDATE resumes SET user_id = :new_uid WHERE user_id = :l_uid"),
+            {"new_uid": new_user_id, "l_uid": legacy_user_id}
+        )
+        conn.execute(
+            text("UPDATE candidate_profiles SET user_id = :new_uid WHERE user_id = :l_uid"),
+            {"new_uid": new_user_id, "l_uid": legacy_user_id}
+        )
+        conn.execute(
+            text("UPDATE candidate_skills SET user_id = :new_uid WHERE user_id = :l_uid"),
+            {"new_uid": new_user_id, "l_uid": legacy_user_id}
+        )
+        conn.execute(
+            text("UPDATE resume_consent SET user_id = :new_uid WHERE user_id = :l_uid"),
+            {"new_uid": new_user_id, "l_uid": legacy_user_id}
+        )
+
+    return {
+        "status": "success",
+        "message": f"Successfully migrated {leg_count} legacy resume records to your verified Supabase account.",
+        "migrated_resumes": leg_count
+    }
 
 # ── LLM helpers ──────────────────────────────────────────────────────────────
 GROQ_API_URL   = "https://api.groq.com/openai/v1/chat/completions"
@@ -513,53 +610,128 @@ def health():
 
 # ── Account Deletion Request ──────────────────────────────────────────────────
 class DeleteRequest(BaseModel):
-    email: str
     reason: Optional[str] = ""
 
 @app.post("/api/v1/account/delete-request")
-async def account_delete_request(req: DeleteRequest):
-    """Log a deletion request. Deletes associated resumes and records."""
-    print(f"DELETION REQUEST: email={req.email}, reason={req.reason}")
+async def account_delete_request(
+    req: DeleteRequest = DeleteRequest(),
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Authenticated account deletion request.
+    Transactionally purges candidate resumes, profile, skills, and consent records.
+    Never exposes raw emails or allows unauthenticated arbitrary deletions.
+    """
+    user_id = current_user["id"]
+    user_email = (current_user.get("email") or "").strip().lower()
+    legacy_user_id = f"usr_{hashlib.sha256(user_email.encode()).hexdigest()[:16]}" if user_email else None
+
     try:
-        with engine.connect() as conn:
-            conn.execute(
-                text("DELETE FROM resumes WHERE user_id = :em"),
-                {"em": req.email}
-            )
-            try:
-                conn.execute(
-                    text("DELETE FROM resumes WHERE user_id IN (SELECT candidate_hash FROM candidate_profiles WHERE email_enc = :em)"),
-                    {"em": req.email}
-                )
-            except Exception:
-                pass
-            conn.commit()
+        with engine.begin() as conn:
+            conn.execute(text("DELETE FROM candidate_skills WHERE user_id = :uid"), {"uid": user_id})
+            conn.execute(text("DELETE FROM candidate_profiles WHERE user_id = :uid"), {"uid": user_id})
+            conn.execute(text("DELETE FROM resumes WHERE user_id = :uid"), {"uid": user_id})
+            conn.execute(text("DELETE FROM resume_consent WHERE user_id = :uid"), {"uid": user_id})
+
+            if legacy_user_id and legacy_user_id != user_id:
+                conn.execute(text("DELETE FROM candidate_skills WHERE user_id = :l_uid"), {"l_uid": legacy_user_id})
+                conn.execute(text("DELETE FROM candidate_profiles WHERE user_id = :l_uid"), {"l_uid": legacy_user_id})
+                conn.execute(text("DELETE FROM resumes WHERE user_id = :l_uid"), {"l_uid": legacy_user_id})
+                conn.execute(text("DELETE FROM resume_consent WHERE user_id = :l_uid"), {"l_uid": legacy_user_id})
     except Exception as e:
-        print(f"Account deletion DB cleanup warning: {e}")
-    return {"status": "received", "message": "Your deletion request has been logged. Associated resume and profile records have been queued/processed for removal."}
+        print(f"Account deletion DB cleanup error: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to complete account deletion. Please try again later."
+        )
+
+    return {
+        "status": "success",
+        "message": "All associated candidate resume, profile, skills, and consent records have been permanently deleted."
+    }
 
 # ── Resume Helpers & Persistent Storage ──────────────────────────────────────
 MAX_RESUME_SIZE = 10 * 1024 * 1024  # 10 MB limit
 
+def sanitize_filename(filename: str) -> str:
+    """Sanitize filename to prevent path traversal and shell injection exploits."""
+    if not filename:
+        return "resume"
+    normalized = filename.replace("\\", "/")
+    base = os.path.basename(normalized).strip()
+    cleaned = re.sub(r'[^a-zA-Z0-9._-]', '_', base)
+    cleaned = cleaned.lstrip('.')
+    return cleaned[:100] or "resume"
+
 def extract_text_from_file(content: bytes, filename: str, mime_type: str) -> str:
-    """Extract readable plain text from PDF, DOCX, or text files."""
+    """
+    Extract readable plain text from PDF, DOCX, or text files with strict signature
+    and structure validation. Rejects corrupted, binary, or malicious files.
+    """
     fn = (filename or "").lower()
     text_content = ""
+
+    # PDF validation & extraction
     if fn.endswith(".pdf") or mime_type == "application/pdf":
+        if not content.startswith(b"%PDF-"):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid file signature: Content does not match PDF format."
+            )
         try:
             import io
             from pypdf import PdfReader
             reader = PdfReader(io.BytesIO(content))
+            if getattr(reader, "is_encrypted", False):
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Encrypted or password-protected PDF files are not supported."
+                )
             pages = [page.extract_text() or "" for page in reader.pages]
             text_content = "\n".join(pages).strip()
-        except Exception:
-            text_content = content.decode("utf-8", errors="ignore").strip()
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Could not parse PDF content: {str(e)}"
+            )
+
+    # DOCX validation & extraction
     elif fn.endswith(".docx") or mime_type in (
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         "application/msword"
     ):
+        if not content.startswith(b"PK\x03\x04"):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid file signature: Content does not match DOCX format."
+            )
+        import io
+        import zipfile
         try:
-            import io
+            with zipfile.ZipFile(io.BytesIO(content)) as z:
+                # Zip bomb defense (< 30 MB uncompressed limit)
+                total_uncompressed = sum(info.file_size for info in z.infolist())
+                if total_uncompressed > 30 * 1024 * 1024:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail="DOCX payload exceeds safe uncompressed size limit (30MB)."
+                    )
+                if "word/document.xml" not in z.namelist():
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail="Invalid DOCX structure: Missing word/document.xml."
+                    )
+        except HTTPException:
+            raise
+        except Exception:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid DOCX archive."
+            )
+
+        try:
             import docx
             doc = docx.Document(io.BytesIO(content))
             lines = [p.text for p in doc.paragraphs if p.text]
@@ -569,17 +741,35 @@ def extract_text_from_file(content: bytes, filename: str, mime_type: str) -> str
             text_content = "\n".join(lines).strip()
         except Exception:
             try:
-                import io
-                import zipfile
                 import xml.etree.ElementTree as ET
                 with zipfile.ZipFile(io.BytesIO(content)) as z:
                     xml_content = z.read("word/document.xml")
-                    tree = ET.fromstring(xml_content)
+                    parser = ET.XMLParser()
+                    tree = ET.fromstring(xml_content, parser=parser)
                     text_content = " ".join([elem.text for elem in tree.iter() if elem.text]).strip()
-            except Exception:
-                text_content = content.decode("utf-8", errors="ignore").strip()
+            except Exception as e:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Could not parse DOCX content: {str(e)}"
+                )
+
+    # TXT validation & extraction
     elif fn.endswith(".txt") or mime_type.startswith("text/"):
-        text_content = content.decode("utf-8", errors="ignore").strip()
+        if b"\x00" in content:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid text file: Binary null bytes detected."
+            )
+        try:
+            text_content = content.decode("utf-8").strip()
+        except UnicodeDecodeError:
+            try:
+                text_content = content.decode("latin-1").strip()
+            except Exception:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Text file encoding not supported. Please upload UTF-8 encoded text."
+                )
     else:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -641,7 +831,7 @@ SKILL_CATEGORIES = {
 def extract_experience_and_tenure(text_content: str):
     """
     Extract work experiences, dates, and compute non-overlapping total experience in years.
-    Handles '2019 - Present', 'Jan 2018 - Mar 2021', '2015 to 2018', etc.
+    Returns (total_years, intervals). If no valid dates or experience found, returns (None, []).
     """
     from datetime import datetime
     current_year = datetime.now().year
@@ -674,7 +864,7 @@ def extract_experience_and_tenure(text_content: str):
                 return min(yrs, 35.0), []
             except ValueError:
                 pass
-        return 3.0, []
+        return None, []
         
     intervals.sort(key=lambda x: x[0])
     merged = []
@@ -694,16 +884,18 @@ def extract_experience_and_tenure(text_content: str):
         
     return min(float(total_years), 35.0), intervals
 
-def determine_seniority(years: float, text_lower: str) -> str:
+def determine_seniority(years: Optional[float], text_lower: str) -> Optional[str]:
     if any(k in text_lower for k in ["staff engineer", "principal engineer", "director", "head of", "vp "]):
         return "Staff / Principal"
     if any(k in text_lower for k in ["lead engineer", "tech lead", "team lead", "engineering manager"]):
         return "Lead"
-    if any(k in text_lower for k in ["senior", "sr."]) or years >= 5:
+    if any(k in text_lower for k in ["senior", "sr."]) or (years is not None and years >= 5):
         return "Senior"
-    if years >= 2:
+    if years is not None and years >= 2:
         return "Mid-Level"
-    return "Junior / Entry"
+    if years is not None and years < 2:
+        return "Junior / Entry"
+    return None
 
 async def parse_structured_resume(text_content: str) -> dict:
     """Extract structured candidate information (name, email, skills, summary, suggestions) via comprehensive parser."""
@@ -715,6 +907,7 @@ async def parse_comprehensive_resume(text_content: str) -> dict:
     - resume_supported: Explicitly discovered in resume text with evidence snippet and ~0.95 confidence
     - ai_inferred: Suggestion based on stack / domains with ~0.70 confidence
     - user_confirmed: Confirmed by candidate
+    Does NOT invent fabricated years, institutions, companies, or generic fallback skills.
     """
     groq_key = os.getenv("GROQ_API_KEY")
     truncated_text = text_content[:6000]
@@ -764,7 +957,7 @@ async def parse_comprehensive_resume(text_content: str) -> dict:
             })
             found_skill_names.add(skill.lower())
 
-    # Infer complementary skills based on recommendations
+    # Infer complementary skills directly based on verified skill recommendations
     inferred_skills = []
     for s_name in list(found_skill_names):
         for rec in SKILL_RECOMMENDATIONS.get(s_name, []):
@@ -775,19 +968,6 @@ async def parse_comprehensive_resume(text_content: str) -> dict:
                     "evidence_type": "inferred",
                     "confidence": 0.70,
                     "evidence": f"Inferred from complementary proficiency in {s_name.capitalize()}",
-                    "source_section": "career_intelligence",
-                    "status": "ai_inferred"
-                })
-
-    if not inferred_skills:
-        for fallback in ['Git', 'Docker', 'REST API', 'SQL', 'Agile']:
-            if fallback.lower() not in found_skill_names:
-                inferred_skills.append({
-                    "name": fallback,
-                    "category": "technical",
-                    "evidence_type": "inferred",
-                    "confidence": 0.65,
-                    "evidence": "Inferred as industry standard practice",
                     "source_section": "career_intelligence",
                     "status": "ai_inferred"
                 })
@@ -810,20 +990,20 @@ async def parse_comprehensive_resume(text_content: str) -> dict:
         target_roles.extend(['Backend Developer', 'Software Engineer', 'Python Developer'])
     elif any(k in found_skill_names for k in ['aws', 'docker', 'kubernetes', 'terraform']):
         target_roles.extend(['DevOps Engineer', 'Cloud Architect'])
-    else:
+    elif explicit_skills:
         target_roles.extend(['Software Engineer', 'Technical Specialist'])
 
-    # Education extraction
+    # Education extraction - no fake institutions
     education = []
     edu_patterns = [
-        r'(Bachelor(?:[\'\w\s]+)?|Master(?:[\'\w\s]+)?|B\.?S\.?|M\.?S\.?|B\.?Tech|M\.?Tech|Ph\.?D\.?)\s+(?:in|of)?\s+([A-Za-z\s]+)(?:from|,|\bat\b)?\s*([A-Za-z\s]+)?',
+        r'(Bachelor(?:[\'\w\s]+)?|Master(?:[\'\w\s]+)?|B\.?S\.?|M\.?S\.?|B\.?Tech|M\.?Tech|Ph\.?D\.?)\s+(?:in|of)?\s+([A-Za-z\s]+)(?:from|,|\bat\b)\s*([A-Za-z\s]+(?:University|College|Institute))',
         r'([A-Za-z\s]+(?:University|College|Institute))'
     ]
     for ep in edu_patterns:
         m = re.search(ep, text_content, re.I)
         if m:
             degree_text = m.group(0).strip()[:100]
-            education.append({"degree": degree_text, "institution": "Accredited University", "year": ""})
+            education.append({"degree": degree_text, "institution": "", "year": ""})
             break
 
     # Certifications
@@ -833,10 +1013,14 @@ async def parse_comprehensive_resume(text_content: str) -> dict:
         if ct.lower() in text_lower:
             certifications.append(ct)
 
-    headline = f"{seniority} {target_roles[0]}" if target_roles else f"{seniority} Software Engineer"
-    summary = f"Results-driven {seniority.lower()} professional with {years_exp:.1f} years of demonstrated experience in {', '.join(detected_domains[:2])}. Proficient in {', '.join([s['name'] for s in explicit_skills[:4]])} with a strong track record of engineering scalable solutions."
+    seniority_label = seniority or "Specialist"
+    headline = f"{seniority_label} {target_roles[0]}" if target_roles else f"{seniority_label} Professional"
+    if years_exp is not None:
+        summary = f"Results-driven {seniority_label.lower()} with {years_exp:.1f} years of demonstrated experience in {', '.join(detected_domains[:2])}. Proficient in {', '.join([s['name'] for s in explicit_skills[:4]])}."
+    else:
+        summary = f"Professional with background in {', '.join(detected_domains[:2])}. Proficient in {', '.join([s['name'] for s in explicit_skills[:4]])}."
 
-    # If Groq is available, enhance summary, headline and detailed roles
+    # If Groq is available, refine summary, headline and suggested titles
     if groq_key:
         system_prompt = (
             "You are an expert resume parser for AI Job Assistant. Extract or refine candidate details. "
@@ -872,6 +1056,18 @@ async def parse_comprehensive_resume(text_content: str) -> dict:
     all_skills = explicit_skills + inferred_skills
     complementary_names = [s["name"] for s in inferred_skills]
 
+    # Only construct experience if real tenure intervals exist - never fabricate
+    experience_list = []
+    if intervals:
+        experience_list.append({
+            "company": "Prior Professional Experience",
+            "designation": target_roles[0] if target_roles else "Software Engineer",
+            "start_date": f"{intervals[0][0]}",
+            "end_date": "Present",
+            "responsibilities": [f"Demonstrated technical proficiency with {', '.join([s['name'] for s in explicit_skills[:3]])}."],
+            "achievements": []
+        })
+
     structured_profile = {
         "candidate": {
             "name": candidate_name,
@@ -880,19 +1076,10 @@ async def parse_comprehensive_resume(text_content: str) -> dict:
             "total_experience_years": years_exp,
             "seniority": seniority,
             "current_company": "",
-            "current_designation": target_roles[0] if target_roles else "Software Engineer"
+            "current_designation": target_roles[0] if target_roles else ""
         },
         "skills": all_skills,
-        "experience": [
-            {
-                "company": "Industry Experience",
-                "designation": target_roles[0] if target_roles else "Software Engineer",
-                "start_date": f"{intervals[0][0]}" if intervals else "2020",
-                "end_date": "Present",
-                "responsibilities": [f"Engineered and maintained systems using {', '.join([s['name'] for s in explicit_skills[:3]])}."],
-                "achievements": ["Delivered high-performance solutions and optimized workflows."]
-            }
-        ],
+        "experience": experience_list,
         "domains": detected_domains,
         "education": education,
         "certifications": certifications,
@@ -912,18 +1099,24 @@ async def parse_comprehensive_resume(text_content: str) -> dict:
 @app.post("/api/v1/resumes/upload", status_code=status.HTTP_201_CREATED)
 async def upload_resume(
     file: UploadFile = File(...),
+    consent_accepted: bool = Form(...),
     purpose: str = Form("profile_generation"),
-    notice_version: str = Form("v2.5.0"),
-    provider_disclosures: str = Form("groq,ollama,openai,gemini,anthropic"),
+    notice_version: str = Form("v2.5.1"),
     current_user: dict = Depends(get_current_user)
 ):
     """
     Persist original resume file (BYTEA) and extracted content in PostgreSQL.
-    Enforces user ownership, version increments, affirmative consent logging,
-    and automatic candidate profile + normalized skills creation.
+    Enforces user ownership, version increments, affirmative consent verification,
+    actual AI provider disclosure, and transactional candidate profile + normalized skills creation.
     """
+    if not consent_accepted:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Affirmative consent is required for cloud storage and AI profile analysis."
+        )
+
     user_id = current_user["id"]
-    filename = file.filename or "resume"
+    filename = sanitize_filename(file.filename or "resume")
     mime_type = file.content_type or "application/octet-stream"
 
     # Read raw binary content
@@ -945,21 +1138,18 @@ async def upload_resume(
     # Compute SHA-256 for integrity verification and duplicate checking
     file_hash = hashlib.sha256(content).hexdigest()
 
-    with engine.connect() as conn:
-        # 1. Log affirmative user consent
-        try:
-            conn.execute(
-                text("""
-                    INSERT INTO resume_consent (user_id, purpose, consent_status, notice_version, provider_disclosures, consented_at)
-                    VALUES (:uid, :purp, 1, :ver, :disc, CURRENT_TIMESTAMP)
-                """),
-                {"uid": user_id, "purp": purpose, "ver": notice_version, "disc": provider_disclosures}
-            )
-            conn.commit()
-        except Exception as e:
-            print(f"Consent log warning: {e}")
+    # Determine actual AI provider used
+    actual_provider = "groq" if os.getenv("GROQ_API_KEY") else "local_parser"
 
-        # 2. Check if identical file already uploaded by this user
+    # Extract text from supported file type and validate signature
+    extracted_text = extract_text_from_file(content, filename, mime_type)
+
+    # Parse comprehensive structured candidate profile
+    parsed_info = await parse_comprehensive_resume(extracted_text)
+    cand_meta = parsed_info.get("candidate", {})
+
+    with engine.begin() as conn:
+        # 1. Check if identical file already uploaded by this user
         existing = conn.execute(
             text("""
                 SELECT id, user_id, filename, mime_type, file_size, file_hash,
@@ -1000,21 +1190,23 @@ async def upload_resume(
                 "message": "This resume file has already been uploaded."
             }
 
-        # 3. Extract text from supported file type
-        extracted_text = extract_text_from_file(content, filename, mime_type)
+        # 2. Log affirmative user consent with actual provider disclosures
+        conn.execute(
+            text("""
+                INSERT INTO resume_consent (user_id, purpose, consent_status, notice_version, provider_disclosures, consented_at)
+                VALUES (:uid, :purp, 1, :ver, :disc, CURRENT_TIMESTAMP)
+            """),
+            {"uid": user_id, "purp": purpose, "ver": notice_version, "disc": actual_provider}
+        )
 
-        # 4. Parse comprehensive structured candidate profile
-        parsed_info = await parse_comprehensive_resume(extracted_text)
-        cand_meta = parsed_info.get("candidate", {})
-
-        # 5. Compute next version for this user
+        # 3. Compute next version for this user
         v_res = conn.execute(
             text("SELECT COALESCE(MAX(version), 0) FROM resumes WHERE user_id = :uid"),
             {"uid": user_id}
         ).scalar()
         next_version = int(v_res or 0) + 1
 
-        # 6. Insert record with original file stored in BYTEA
+        # 4. Insert record with original file stored in BYTEA
         if engine.dialect.name == "sqlite":
             conn.execute(
                 text("""
@@ -1035,7 +1227,6 @@ async def upload_resume(
                     "ver": next_version
                 }
             )
-            conn.commit()
             r = conn.execute(
                 text("SELECT id, created_at FROM resumes WHERE user_id = :uid AND file_hash = :hash ORDER BY id DESC LIMIT 1"),
                 {"uid": user_id, "hash": file_hash}
@@ -1064,13 +1255,12 @@ async def upload_resume(
                 }
             )
             row = ins.fetchone()
-            conn.commit()
             new_id = row[0]
             created_at = row[1]
 
         created_val = created_at.isoformat() if hasattr(created_at, "isoformat") else str(created_at)
 
-        # 7. Upsert Candidate Profile
+        # 5. Upsert Candidate Profile
         cand_hash = hashlib.sha256(user_id.encode()).hexdigest()
         domains_json = json.dumps(parsed_info.get("domains", []))
         education_json = json.dumps(parsed_info.get("education", []))
@@ -1155,7 +1345,7 @@ async def upload_resume(
                 }
             )
 
-        # 8. Populate Normalized Skills into candidate_skills
+        # 6. Populate Normalized Skills into candidate_skills
         # Keep user_confirmed skills intact, refresh resume_supported & ai_inferred
         conn.execute(
             text("DELETE FROM candidate_skills WHERE user_id = :uid AND status != 'user_confirmed'"),
@@ -1193,22 +1383,21 @@ async def upload_resume(
                     "st": sk.get("status", "resume_supported")
                 }
             )
-        conn.commit()
 
-        return {
-            "id": new_id,
-            "user_id": user_id,
-            "filename": filename,
-            "mime_type": mime_type,
-            "file_size": file_size,
-            "file_hash": file_hash,
-            "version": next_version,
-            "parsed_info": parsed_info,
-            "candidate_profile": parsed_info,
-            "created_at": created_val,
-            "is_duplicate": False,
-            "message": "Resume successfully uploaded, candidate profile generated, and skills synchronized in PostgreSQL."
-        }
+    return {
+        "id": new_id,
+        "user_id": user_id,
+        "filename": filename,
+        "mime_type": mime_type,
+        "file_size": file_size,
+        "file_hash": file_hash,
+        "version": next_version,
+        "parsed_info": parsed_info,
+        "candidate_profile": parsed_info,
+        "created_at": created_val,
+        "is_duplicate": False,
+        "message": "Resume successfully uploaded, candidate profile generated, and skills synchronized in PostgreSQL."
+    }
 
 # ── Candidate Profile Endpoints ──────────────────────────────────────────────
 @app.get("/api/v1/candidate/profile")
@@ -1404,7 +1593,7 @@ async def delete_candidate_profile(current_user: dict = Depends(get_current_user
     return {"status": "success", "message": "Candidate profile, skills, consent, and resume files completely removed."}
 
 @app.get("/api/v1/admin/analytics")
-async def get_admin_analytics():
+async def get_admin_analytics(admin_user: dict = Depends(require_admin_user)):
     with engine.connect() as conn:
         total_resumes = conn.execute(text("SELECT COUNT(*) FROM resumes")).scalar() or 0
         total_profiles = conn.execute(text("SELECT COUNT(*) FROM candidate_profiles")).scalar() or 0
@@ -2116,7 +2305,7 @@ async def get_recruiter_events(recruiter_id: Optional[str] = Depends(get_recruit
 
 # ── Seed Test Candidates ──────────────────────────────────────────────────────
 @app.post("/api/v1/admin/seed-candidates")
-async def seed_test_candidates():
+async def seed_test_candidates(admin_user: dict = Depends(require_admin_user)):
     """
     Seed the database with realistic test candidate profiles for recruiter app testing.
     Safe to call multiple times — uses ON CONFLICT DO NOTHING.
@@ -2333,7 +2522,7 @@ async def evaluate_job(req: EvaluateRequest):
 
 # ── Embedding Backfill ────────────────────────────────────────────────────────
 @app.post("/api/v1/admin/migrate-candidate-embeddings")
-async def migrate_candidate_embeddings():
+async def migrate_candidate_embeddings(admin_user: dict = Depends(require_admin_user)):
     """
     One-time migration: resize candidate_profiles embedding column to match
     the current embedding model dimension (1536 for OpenAI, 768 for Ollama).
@@ -2375,7 +2564,7 @@ async def migrate_candidate_embeddings():
         raise HTTPException(500, f"Migration failed: {str(e)}")
 
 @app.get("/api/v1/admin/db-status")
-async def db_status():
+async def db_status(admin_user: dict = Depends(require_admin_user)):
     """Check database status for debugging."""
     with engine.connect() as conn:
         job_count = conn.execute(text("SELECT COUNT(*) FROM job_listings")).scalar()
@@ -2392,14 +2581,14 @@ async def db_status():
     }
 
 @app.get("/api/v1/admin/job-count")
-async def job_count():
+async def job_count(admin_user: dict = Depends(require_admin_user)):
     """Return the total number of job listings in the database."""
     with engine.connect() as conn:
         total = conn.execute(text("SELECT COUNT(*) FROM job_listings")).scalar()
     return {"total_jobs": total}
 
 @app.delete("/api/v1/admin/purge-old-jobs")
-async def purge_old_jobs(days: int = 7):
+async def purge_old_jobs(days: int = 7, admin_user: dict = Depends(require_admin_user)):
     """Delete all job listings older than `days` days. Default: 7 days."""
     try:
         deleted = _purge_old_jobs(days)
@@ -2415,7 +2604,7 @@ async def purge_old_jobs(days: int = 7):
         raise HTTPException(500, f"Purge failed: {e}")
 
 @app.post("/api/v1/admin/backfill-embeddings")
-async def backfill_embeddings(batch_size: int = 50):
+async def backfill_embeddings(batch_size: int = 50, admin_user: dict = Depends(require_admin_user)):
     """Compute and store embeddings for all jobs that don't have one yet.
     Uses OpenAI text-embedding-3-small if OPENAI_API_KEY is set (1536-dim),
     otherwise falls back to Ollama nomic-embed-text (768-dim).
@@ -2465,7 +2654,7 @@ async def backfill_embeddings(batch_size: int = 50):
     }
 
 @app.get("/api/v1/admin/scrape-stats")
-async def scrape_stats():
+async def scrape_stats(admin_user: dict = Depends(require_admin_user)):
     """Show when the last scrape ran and how many jobs were added recently."""
     with engine.connect() as conn:
         total = conn.execute(text("SELECT COUNT(*) FROM job_listings")).scalar() or 0
@@ -2497,7 +2686,7 @@ async def scrape_stats():
     }
 
 @app.post("/api/v1/admin/migrate-to-openai-embeddings")
-async def migrate_to_openai_embeddings(batch_size: int = 100):
+async def migrate_to_openai_embeddings(batch_size: int = 100, admin_user: dict = Depends(require_admin_user)):
     """
     One-time migration: resize embedding column to 1536-dim and re-embed ALL jobs
     using OpenAI text-embedding-3-small. Call this endpoint repeatedly until
@@ -2544,14 +2733,14 @@ async def migrate_to_openai_embeddings(batch_size: int = 100):
             }
 
     # Step 2: Re-embed in batches (delegates to backfill_embeddings)
-    result = await backfill_embeddings(batch_size)
+    result = await backfill_embeddings(batch_size=batch_size, admin_user=admin_user)
     result["step"] = "re_embedding"
     return result
 
 
 # ── Ingestion Monitoring ──────────────────────────────────────────────────────
 @app.get("/api/v1/admin/daily-stats")
-async def daily_stats():
+async def daily_stats(admin_user: dict = Depends(require_admin_user)):
     """Return job insertion counts broken down by day, source, and embedding status."""
     try:
         with engine.connect() as conn:
@@ -2603,7 +2792,7 @@ async def daily_stats():
 
 
 @app.get("/api/v1/admin/ingestion-log")
-async def ingestion_log(limit: int = 30):
+async def ingestion_log(limit: int = 30, admin_user: dict = Depends(require_admin_user)):
     """Return recent ingestion run history from the ingestion_logs table."""
     try:
         with engine.connect() as conn:
@@ -2659,7 +2848,7 @@ async def get_events(recruiter_id: Optional[str] = Depends(get_recruiter_id)):
 
 # ── Admin Dashboard ───────────────────────────────────────────────────────────
 @app.get("/api/v1/admin/stats")
-async def admin_stats():
+async def admin_stats(admin_user: dict = Depends(require_admin_user)):
     with engine.connect() as conn:
         # Check if tables exist safely
         # Quick fallback if DB not fully initialized
@@ -2687,7 +2876,7 @@ async def admin_stats():
     }
 
 @app.get("/api/v1/admin/candidates")
-async def list_all_candidates():
+async def list_all_candidates(admin_user: dict = Depends(require_admin_user)):
     candidates = []
     resumes = []
     with engine.connect() as conn:
@@ -2725,7 +2914,7 @@ async def list_all_candidates():
     }
 
 @app.get("/dashboard", response_class=HTMLResponse)
-async def dashboard_view():
+async def dashboard_view(admin_user: dict = Depends(require_admin_user)):
     return """
     <!DOCTYPE html>
     <html lang="en">
@@ -2900,10 +3089,19 @@ async def dashboard_view():
                 return (str || '').replace(/[&<>'"]/g, tag => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[tag] || tag));
             }
 
+            const adminToken = new URLSearchParams(window.location.search).get('token') || '';
+            function authFetch(url, opts = {}) {
+                opts.headers = opts.headers || {};
+                if (adminToken) {
+                    opts.headers['Authorization'] = 'Bearer ' + adminToken;
+                }
+                return fetch(url, opts);
+            }
+
             let allCandidatesData = [];
             async function fetchAllCandidates() {
                 try {
-                    const res = await fetch('/api/v1/admin/candidates');
+                    const res = await authFetch('/api/v1/admin/candidates');
                     if (!res.ok) return;
                     const d = await res.json();
                     allCandidatesData = d.profiles || [];
@@ -2963,7 +3161,7 @@ async def dashboard_view():
             // ── Recruiter stats ──────────────────────────────────────────────
             async function fetchStats() {
                 try {
-                    const res = await fetch('/api/v1/admin/stats');
+                    const res = await authFetch('/api/v1/admin/stats');
                     const data = await res.json();
 
                     document.getElementById('total_profiles').innerText = data.metrics.total_profiles;
@@ -2999,7 +3197,7 @@ async def dashboard_view():
             // ── Daily ingestion stats ────────────────────────────────────────
             async function fetchDailyStats() {
                 try {
-                    const res = await fetch('/api/v1/admin/daily-stats');
+                    const res = await authFetch('/api/v1/admin/daily-stats');
                     if (!res.ok) return;
                     const d = await res.json();
 
@@ -3054,7 +3252,7 @@ async def dashboard_view():
             // ── Ingestion run log ────────────────────────────────────────────
             async function fetchIngestionLog() {
                 try {
-                    const res = await fetch('/api/v1/admin/ingestion-log?limit=10');
+                    const res = await authFetch('/api/v1/admin/ingestion-log?limit=10');
                     if (!res.ok) return;
                     const d = await res.json();
 

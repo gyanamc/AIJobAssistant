@@ -620,8 +620,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function addConfirmedSkill(skill) {
     if (!skill || !skill.trim()) return;
-    _userSkills = mergeUserSkills(_userSkills, [skill.trim()]);
-    _suggestedSkills = removeUserSkill(_suggestedSkills, skill.trim());
+    const trimmed = skill.trim();
+    _userSkills = mergeUserSkills(_userSkills, [trimmed]);
+    _suggestedSkills = removeUserSkill(_suggestedSkills, trimmed);
+    syncConfirmSkillToBackend(trimmed);
     chrome.storage.local.set({ userSkills: _userSkills, suggestedSkills: _suggestedSkills }, () => {
       renderConfirmedSkills(_userSkills, _superpowerSkills);
       renderSuggestedSkills(_suggestedSkills, _userSkills);
@@ -755,27 +757,25 @@ document.addEventListener('DOMContentLoaded', () => {
 
   async function getOrIssueAuthToken(userEmail) {
     const stored = await new Promise(r => chrome.storage.local.get(['userSessionToken', 'supabaseToken', 'userEmail'], r));
-    if (stored.userSessionToken) return stored.userSessionToken;
     if (stored.supabaseToken) return stored.supabaseToken;
-
-    const emailToUse = (userEmail || stored.userEmail || '').trim() || `candidate_${Date.now()}@user.aijobassistant.internal`;
-    try {
-      const res = await fetch(`${BACKEND_BASE}/api/v1/auth/session`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: emailToUse })
-      });
-      if (res.ok) {
-        const data = await res.json();
-        if (data.access_token) {
-          chrome.storage.local.set({ userSessionToken: data.access_token, userEmail: emailToUse });
-          return data.access_token;
-        }
-      }
-    } catch (err) {
-      console.warn('Session endpoint offline:', err);
-    }
+    if (stored.userSessionToken) return stored.userSessionToken;
     return null;
+  }
+
+  async function syncConfirmSkillToBackend(skillName) {
+    if (!skillName) return;
+    try {
+      const token = await getOrIssueAuthToken();
+      if (!token) return;
+      await fetch(`${BACKEND_BASE}/api/v1/candidate/skills/confirm`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ skill: skillName })
+      });
+    } catch (_) {}
   }
 
   function updateOnboardingState(hasActiveProfile, profileData) {
@@ -931,8 +931,9 @@ document.addEventListener('DOMContentLoaded', () => {
           setHeroProgress(45, `Uploading "${_selectedResumeFile.name}" to private PostgreSQL storage...`);
           const formData = new FormData();
           formData.append('file', _selectedResumeFile);
+          formData.append('consent_accepted', 'true');
           formData.append('purpose', 'profile_generation');
-          formData.append('notice_version', 'v2.5.0');
+          formData.append('notice_version', 'v2.5.1');
           formData.append('provider_disclosures', 'groq,ollama,openai,gemini,anthropic');
 
           const headers = {};
@@ -956,7 +957,7 @@ document.addEventListener('DOMContentLoaded', () => {
               throw new Error(err.detail || `Upload returned status ${res.status}`);
             }
           } catch (netErr) {
-            // If network / Railway is unreachable and file is .txt, fallback to local text parsing
+            // When Railway is unreachable and file is .txt, provide local preview but do NOT claim successful cloud upload
             if (_selectedResumeFile.name.endsWith('.txt')) {
               const text = await _selectedResumeFile.text();
               const extractedSkills = extractSkillsFromText(text);
@@ -966,15 +967,16 @@ document.addEventListener('DOMContentLoaded', () => {
                 filename: _selectedResumeFile.name,
                 version: 1,
                 extracted_text: text,
+                is_local_preview: true,
                 candidate_profile: {
                   candidate: {
                     name: _selectedResumeFile.name.replace(/\.[^/.]+$/, ""),
-                    headline: "Professional Candidate Profile",
+                    headline: "Candidate Profile (Local Preview)",
                     summary: text.slice(0, 300),
-                    total_experience_years: 3.0,
-                    seniority: "Mid-Level",
+                    total_experience_years: null,
+                    seniority: null,
                     current_company: "",
-                    current_designation: "Software Engineer"
+                    current_designation: ""
                   },
                   skills: extractedSkills.map(s => ({
                     name: s,
@@ -987,11 +989,12 @@ document.addEventListener('DOMContentLoaded', () => {
                   domains: ["Software Engineering"],
                   education: [],
                   certifications: [],
-                  suggested_job_titles: ["Software Engineer"],
+                  suggested_job_titles: [],
                   complementary_skills: suggestedSkills
                 }
               };
-              uploadSucceeded = true;
+              uploadSucceeded = false;
+              showHeroError('Cloud backend is unreachable. Loaded LOCAL PREVIEW — NOT YET SAVED TO CLOUD. Please check your connection and retry.');
             } else {
               throw netErr;
             }
@@ -1012,10 +1015,19 @@ document.addEventListener('DOMContentLoaded', () => {
 
             const candidateProf = responseData.candidate_profile || responseData.parsed_info || {};
             const summaryText = responseData.extracted_text || candidateProf.candidate?.summary || '';
-            const candSkills = candidateProf.skills ? candidateProf.skills.map(s => s.name || s) : [];
+            const candSkills = Array.isArray(candidateProf.skills)
+              ? candidateProf.skills
+                  .filter(s => typeof s === 'object' ? (s.status === 'resume_supported' || s.status === 'user_confirmed') : true)
+                  .map(s => typeof s === 'object' ? s.name : s)
+              : [];
+            const inferredList = Array.isArray(candidateProf.skills)
+              ? candidateProf.skills
+                  .filter(s => typeof s === 'object' && s.status === 'ai_inferred')
+                  .map(s => s.name)
+              : [];
 
             _userSkills = mergeUserSkills(_userSkills, candSkills);
-            _suggestedSkills = candidateProf.complementary_skills || [];
+            _suggestedSkills = Array.from(new Set([...(candidateProf.complementary_skills || []), ...inferredList]));
 
             const storageUpdate = {
               candidateProfile: candidateProf,
@@ -1384,8 +1396,9 @@ document.addEventListener('DOMContentLoaded', () => {
       try {
         const formData = new FormData();
         formData.append('file', file);
+        formData.append('consent_accepted', 'true');
         formData.append('purpose', 'profile_generation');
-        formData.append('notice_version', 'v2.5.0');
+        formData.append('notice_version', 'v2.5.1');
         formData.append('provider_disclosures', 'groq,ollama,openai,gemini,anthropic');
 
         const token = await getOrIssueAuthToken();
@@ -1417,8 +1430,17 @@ document.addEventListener('DOMContentLoaded', () => {
           }
 
           const candidateProf = responseData.candidate_profile || responseData.parsed_info || {};
-          let parsedSkills = candidateProf.skills ? candidateProf.skills.map(s => s.name || s) : [];
-          let parsedSuggested = candidateProf.complementary_skills || [];
+          let parsedSkills = Array.isArray(candidateProf.skills)
+            ? candidateProf.skills
+                .filter(s => typeof s === 'object' ? (s.status === 'resume_supported' || s.status === 'user_confirmed') : true)
+                .map(s => typeof s === 'object' ? s.name : s)
+            : [];
+          let inferredList = Array.isArray(candidateProf.skills)
+            ? candidateProf.skills
+                .filter(s => typeof s === 'object' && s.status === 'ai_inferred')
+                .map(s => s.name)
+            : [];
+          let parsedSuggested = Array.from(new Set([...(candidateProf.complementary_skills || []), ...inferredList]));
           let parsedRoles = candidateProf.suggested_job_titles || [];
 
           if (!parsedSkills.length && summaryText) {

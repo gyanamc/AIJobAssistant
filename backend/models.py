@@ -114,6 +114,18 @@ class ResumeProcessingJob(Base):
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
 
+class AdminAuditLog(Base):
+    __tablename__ = 'admin_audit_logs'
+
+    id = Column(Integer, primary_key=True, index=True)
+    admin_user_id = Column(String(100), index=True, nullable=False)
+    endpoint = Column(String(255), nullable=False)
+    action = Column(String(255), nullable=False)
+    ip_address = Column(String(64), nullable=True, default='')
+    details = Column(JSON, nullable=False, default=dict)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
 # Auto-create tables if they don't exist
 Base.metadata.create_all(bind=engine)
 

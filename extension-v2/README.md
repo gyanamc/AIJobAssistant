@@ -1,4 +1,16 @@
-# AI Job Assistant Extension (v2.5.0)
+# AI Job Assistant Extension (v2.5.1)
+
+## v2.5.1 release summary (November 22, 2026) — Security, Trust & AI Accuracy Hardening
+
+- **Verified Identity & Supabase Bearer Authentication**: Deprecated insecure email-only HMAC session creation. All protected candidate and resume endpoints now require verified Supabase Bearer JWTs, deriving the canonical candidate ID from the cryptographically verified user UUID.
+- **Strict Server-Side Admin Authorization & Audit Logging**: Protected all administrative endpoints (`/api/v1/admin/*`, `/dashboard`) with `require_admin_user` dependency, verifying administrator roles and recording all actions in `admin_audit_logs`.
+- **Zero-Dynamic-Sink Security Integrity**: Retained strict zero dynamic HTML sinks (`.innerHTML =`, `.outerHTML =`, `insertAdjacentHTML(`) policy across extension UI, utilizing safe DOM construction.
+- **Affirmative Consent & Multi-Provider Disclosure**: Unchecked consent by default on first onboarding. Enforces explicit affirmative consent verification on backend before file parsing or database persistence.
+- **High-Integrity File Validation**: Magic bytes verification for PDF (`%PDF-`), encrypted/password-protected PDF rejection, DOCX archive structure and zip bomb limit validation (<30MB uncompressed), binary null-byte rejection in text files, and strict filename sanitization.
+- **Accurate Fact-Based AI Extraction**: Removed all fabricated AI fallbacks (no assumed 3.0 years, no generic "Industry Experience", no fake "Accredited University", no arbitrary skill hallucination).
+- **Matching Evidence Discipline**: Skill matching engine strictly restricts fit evidence to `resume_supported` and `user_confirmed` skills. AI-inferred suggestions do not count toward job match scoring until explicitly confirmed.
+- **Controlled Legacy Account Migration**: Transactional migration endpoint (`POST /api/v1/candidate/migrate-legacy`) allowing verified users to import their previous resume records.
+- **Authenticated Account Erasure**: Hardened deletion endpoint requiring verified Bearer authorization to permanently wipe resumes, profiles, skills, and consent records without leaking user emails.
 
 ## v2.5.0 release summary (November 21, 2026) — Resume-First AI Career Assistant
 

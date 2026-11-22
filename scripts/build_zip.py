@@ -139,8 +139,8 @@ def main():
 
     print(f"Building {name} v{version} (Manifest V{mv})")
 
-    if version != "2.5.0":
-        print(f"ERROR: Expected version 2.5.0, found {version}", file=sys.stderr)
+    if version != "2.5.1":
+        print(f"ERROR: Expected version 2.5.1, found {version}", file=sys.stderr)
         sys.exit(1)
 
     if mv != 3:
